@@ -1,17 +1,20 @@
-//
-//  luminecklaceApp.swift
-//  luminecklace
-//
-//  Created by John McCants on 2/22/26.
-//
-
 import SwiftUI
 
 @main
 struct luminecklaceApp: App {
+    @StateObject private var appState = AppState()
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            AppRootView()
+                .environmentObject(appState)
+                .onOpenURL { url in
+                    appState.handleIncomingHandoff(url: url)
+                }
+                .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { userActivity in
+                    guard let url = userActivity.webpageURL else { return }
+                    appState.handleIncomingHandoff(url: url)
+                }
         }
     }
 }
