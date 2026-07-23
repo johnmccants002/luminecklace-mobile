@@ -11,7 +11,7 @@ struct LumiTextField: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(label)
                 .font(LumiTheme.Typography.body(14).weight(.medium))
-                .foregroundStyle(.white.opacity(0.9))
+                .foregroundStyle(LumiTheme.Colors.ink.opacity(0.92))
 
             Group {
                 if secure {
@@ -22,14 +22,15 @@ struct LumiTextField: View {
                 }
             }
             .keyboardType(keyboardType)
-            .foregroundStyle(.white)
+            .foregroundStyle(LumiTheme.Colors.ink)
             .padding(14)
-            .background(LumiTheme.Colors.ink.opacity(0.34))
+            .background(Color.white.opacity(0.92))
             .overlay(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(.white.opacity(0.24), lineWidth: 1)
+                    .stroke(LumiTheme.Colors.cardStroke, lineWidth: 1)
             )
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .shadow(color: Color.black.opacity(0.03), radius: 8, y: 4)
         }
     }
 }
@@ -60,11 +61,11 @@ struct MessageCardView: View {
         VStack(alignment: .leading, spacing: 12) {
             Label("Tap Experience", systemImage: "sparkles")
                 .font(LumiTheme.Typography.body(13).weight(.medium))
-                .foregroundStyle(.white.opacity(0.9))
+                .foregroundStyle(LumiTheme.Colors.rose)
 
             Text(message?.text ?? "Tap your necklace to reveal a message.")
                 .font(LumiTheme.Typography.headline(28))
-                .foregroundStyle(.white)
+                .foregroundStyle(LumiTheme.Colors.ink)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             if let message {
@@ -72,9 +73,9 @@ struct MessageCardView: View {
                     .font(LumiTheme.Typography.body(13))
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
-                    .background(.white.opacity(0.18))
+                    .background(LumiTheme.Colors.roseSoft)
                     .clipShape(Capsule())
-                    .foregroundStyle(.white)
+                    .foregroundStyle(LumiTheme.Colors.rose)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -89,30 +90,31 @@ struct NecklaceCardView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Image(systemName: "heart.circle.fill")
-                    .foregroundStyle(.white)
+                    .foregroundStyle(LumiTheme.Colors.rose)
                 Spacer()
                 if necklace.isEquipped {
                     Text("Equipped")
                         .font(LumiTheme.Typography.body(11).weight(.semibold))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(.white.opacity(0.22))
+                        .background(LumiTheme.Colors.roseSoft)
                         .clipShape(Capsule())
+                        .foregroundStyle(LumiTheme.Colors.rose)
                 }
             }
             Text(necklace.name)
                 .font(LumiTheme.Typography.body(15).weight(.semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(LumiTheme.Colors.ink)
             Text(necklace.themeKey.capitalized + " Theme")
                 .font(LumiTheme.Typography.body(12))
-                .foregroundStyle(.white.opacity(0.85))
+                .foregroundStyle(LumiTheme.Colors.ink.opacity(0.68))
             if let rarity = necklace.rarity {
                 Text(rarity)
                     .font(LumiTheme.Typography.body(11).weight(.semibold))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background(LumiTheme.Colors.blush.opacity(0.9))
-                    .foregroundStyle(LumiTheme.Colors.ink)
+                    .background(LumiTheme.Colors.roseSoft)
+                    .foregroundStyle(LumiTheme.Colors.rose)
                     .clipShape(Capsule())
             }
         }
@@ -133,16 +135,16 @@ struct PackageRowView: View {
                 HStack(spacing: 6) {
                     Text(package.title)
                         .font(LumiTheme.Typography.body(16).weight(.semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(LumiTheme.Colors.ink)
                     if package.isPremium {
                         Image(systemName: "lock.fill")
                             .font(.caption)
-                            .foregroundStyle(LumiTheme.Colors.blush)
+                            .foregroundStyle(LumiTheme.Colors.rose)
                     }
                 }
                 Text(package.isPremium ? "Premium package" : "Included")
                     .font(LumiTheme.Typography.body(12))
-                    .foregroundStyle(.white.opacity(0.75))
+                    .foregroundStyle(LumiTheme.Colors.ink.opacity(0.68))
             }
             Spacer()
             Toggle("", isOn: Binding(get: {
@@ -164,15 +166,15 @@ struct EmptyStateView: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            Image(systemName: systemImage)
-                .font(.system(size: 34))
-                .foregroundStyle(.white.opacity(0.8))
+                Image(systemName: systemImage)
+                    .font(.system(size: 34))
+                    .foregroundStyle(LumiTheme.Colors.rose)
             Text(title)
                 .font(LumiTheme.Typography.headline(20))
-                .foregroundStyle(.white)
+                .foregroundStyle(LumiTheme.Colors.ink)
             Text(subtitle)
                 .font(LumiTheme.Typography.body(14))
-                .foregroundStyle(.white.opacity(0.75))
+                .foregroundStyle(LumiTheme.Colors.ink.opacity(0.68))
                 .multilineTextAlignment(.center)
         }
         .padding()

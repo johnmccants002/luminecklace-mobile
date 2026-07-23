@@ -57,6 +57,7 @@ create table if not exists public.messages (
     author_user_id uuid not null references auth.users (id) on delete cascade,
     content text not null,
     state text not null default 'draft' check (state in ('draft', 'published', 'archived')),
+    queue_order int not null default 0,
     theme_key text not null default 'heart',
     animation_key text not null default 'breathe',
     sound_key text not null default 'soft',
@@ -69,6 +70,9 @@ create table if not exists public.messages (
 create index if not exists messages_necklace_published_idx
     on public.messages (necklace_id, published_at desc)
     where state = 'published';
+
+create index if not exists messages_necklace_queue_idx
+    on public.messages (necklace_id, queue_order asc, published_at desc, created_at desc);
 
 create table if not exists public.tap_events (
     id uuid primary key default gen_random_uuid(),
@@ -114,6 +118,7 @@ alter table public.messages
     add column if not exists author_user_id uuid,
     add column if not exists content text,
     add column if not exists state text,
+    add column if not exists queue_order int default 0,
     add column if not exists theme_key text default 'heart',
     add column if not exists animation_key text default 'breathe',
     add column if not exists sound_key text default 'soft',
@@ -208,6 +213,36 @@ create policy messages_sender_write on public.messages
     for insert with check (
         author_user_id = auth.uid()
         and exists (
+            select 1
+            from public.necklace_ownerships own
+            where own.necklace_id = messages.necklace_id
+              and own.sender_user_id = auth.uid()
+        )
+    );
+
+drop policy if exists messages_sender_update on public.messages;
+create policy messages_sender_update on public.messages
+    for update using (
+        exists (
+            select 1
+            from public.necklace_ownerships own
+            where own.necklace_id = messages.necklace_id
+              and own.sender_user_id = auth.uid()
+        )
+    ) with check (
+        author_user_id = auth.uid()
+        and exists (
+            select 1
+            from public.necklace_ownerships own
+            where own.necklace_id = messages.necklace_id
+              and own.sender_user_id = auth.uid()
+        )
+    );
+
+drop policy if exists messages_sender_delete on public.messages;
+create policy messages_sender_delete on public.messages
+    for delete using (
+        exists (
             select 1
             from public.necklace_ownerships own
             where own.necklace_id = messages.necklace_id
@@ -332,7 +367,7 @@ begin
       and m.state = 'published'
       and (m.eligible_from is null or m.eligible_from <= now())
       and (m.eligible_until is null or m.eligible_until > now())
-    order by m.published_at desc nulls last, m.created_at desc
+    order by m.queue_order asc nulls last, m.published_at desc nulls last, m.created_at desc
     limit 1;
 
     if v_message is null then

@@ -1,7 +1,7 @@
 import Foundation
 
 enum APIConfig {
-    static let baseURL: URL = {
+    nonisolated static let baseURL: URL = {
         if let envValue = ProcessInfo.processInfo.environment["LUMI_API_BASE_URL"],
            let url = URL(string: envValue) {
             return url
@@ -10,7 +10,7 @@ enum APIConfig {
            let url = URL(string: defaultsValue) {
             return url
         }
-        return URL(string: "http://localhost:3000")!
+        return URL(string: "https://www.luminecklace.com")!
     }()
 }
 
@@ -112,11 +112,11 @@ final class APIClient {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         }
 
-        let isVerbosePath = path == "/api/auth/otp/request"
-            || path == "/api/auth/otp/verify"
-            || path == "/api/sender/claim_pending_orders_for_user"
-            || path == "/api/sender/messages/publish"
-            || path == "/api/tap/resolve_tap_message"
+        let isSenderLumiWrite = path.hasPrefix("/api/sender/necklaces/")
+            && path.hasSuffix("/lumis")
+        let isVerbosePath = path == "/api/auth/signin"
+            || path == "/api/sender/necklaces"
+            || isSenderLumiWrite
 
         if isVerbosePath {
             let hasAuthHeader = request.value(forHTTPHeaderField: "Authorization") != nil
@@ -127,7 +127,12 @@ final class APIClient {
                     partial[entry.key] = entry.value
                 }
             }
-            let requestBody = request.httpBody.flatMap { String(data: $0, encoding: .utf8) } ?? "<empty>"
+            let requestBody: String
+            if path == "/api/auth/signin" || isSenderLumiWrite {
+                requestBody = "<redacted>"
+            } else {
+                requestBody = request.httpBody.flatMap { String(data: $0, encoding: .utf8) } ?? "<empty>"
+            }
             print("[API] \(path) request method=\(method.rawValue) url=\(url.absoluteString) hasAuth=\(hasAuthHeader) headers=\(headers) body=\(requestBody)")
         }
 
@@ -216,6 +221,15 @@ enum JSONLookup {
     static func bool(_ json: [String: Any], keys: [String]) -> Bool? {
         for key in keys {
             if let value = json[key] as? Bool {
+                return value
+            }
+        }
+        return nil
+    }
+
+    static func int(_ json: [String: Any], keys: [String]) -> Int? {
+        for key in keys {
+            if let value = json[key] as? Int {
                 return value
             }
         }

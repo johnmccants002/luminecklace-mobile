@@ -11,21 +11,13 @@ final class AuthService {
         self.client = client
     }
 
-    func requestOTP(email: String) async throws {
-        _ = try await client.requestObject(
-            method: .post,
-            path: "/api/auth/otp/request",
-            body: ["email": email]
-        )
-    }
-
-    func verifyOTP(email: String, code: String) async throws -> AuthResult {
+    func signIn(email: String, password: String) async throws -> AuthResult {
         let payload = try await client.requestObject(
             method: .post,
-            path: "/api/auth/otp/verify",
+            path: "/api/auth/signin",
             body: [
                 "email": email,
-                "code": code
+                "password": password
             ]
         )
 

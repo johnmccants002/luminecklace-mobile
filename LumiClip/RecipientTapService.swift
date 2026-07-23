@@ -1,17 +1,24 @@
 import Foundation
 
+enum RecipientTapServiceError: LocalizedError {
+    case invalidURL
+    case invalidResponse
+    case server
+    case invalidPayload
+}
+
 nonisolated protocol RecipientTapServicing {
     func resolveTap(token: String) async throws -> ResolveTapResponse
     func confirmReveal(revealSessionId: String) async throws -> ConfirmRevealResponse
 }
 
-nonisolated final class TapResolutionService: RecipientTapServicing {
+nonisolated final class RecipientTapService: RecipientTapServicing {
     private let baseURL: URL
     private let session: URLSession
     private let encoder = JSONEncoder()
     private let decoder: JSONDecoder
 
-    init(baseURL: URL = APIConfig.baseURL, session: URLSession = .shared) {
+    init(baseURL: URL = RecipientTapService.resolveBaseURL(), session: URLSession = .shared) {
         self.baseURL = baseURL
         self.session = session
 
@@ -35,7 +42,7 @@ nonisolated final class TapResolutionService: RecipientTapServicing {
             responseType: ConfirmRevealResponse.self
         )
         guard response.status == "revealed" else {
-            throw APIError.invalidPayload
+            throw RecipientTapServiceError.invalidPayload
         }
         return response
     }
@@ -46,36 +53,48 @@ nonisolated final class TapResolutionService: RecipientTapServicing {
         responseType: Response.Type
     ) async throws -> Response {
         guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
-            throw APIError.invalidURL
+            throw RecipientTapServiceError.invalidURL
         }
         components.path = path
         guard let url = components.url else {
-            throw APIError.invalidURL
+            throw RecipientTapServiceError.invalidURL
         }
 
         var request = URLRequest(url: url)
-        request.httpMethod = HTTPMethod.post.rawValue
+        request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try encoder.encode(body)
 
         let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
-            throw APIError.invalidResponse
+            throw RecipientTapServiceError.invalidResponse
         }
-
         guard (200...299).contains(httpResponse.statusCode) else {
-            throw APIError.serverError(
-                statusCode: httpResponse.statusCode,
-                message: HTTPURLResponse.localizedString(forStatusCode: httpResponse.statusCode)
-            )
+            throw RecipientTapServiceError.server
         }
 
         do {
             return try decoder.decode(Response.self, from: data)
         } catch {
-            throw APIError.invalidPayload
+            throw RecipientTapServiceError.invalidPayload
         }
+    }
+
+    private static func resolveBaseURL() -> URL {
+        if let envValue = ProcessInfo.processInfo.environment["LUMI_API_BASE_URL"],
+           let url = URL(string: envValue) {
+            return url
+        }
+        #if DEBUG
+        if let defaultsValue = UserDefaults.standard.string(forKey: "LUMI_API_BASE_URL"),
+           let url = URL(string: defaultsValue) {
+            return url
+        }
+        return URL(string: "http://localhost:3000")!
+        #else
+        return URL(string: "https://www.luminecklace.com")!
+        #endif
     }
 
     private static func decodeISO8601Date(decoder: Decoder) throws -> Date {

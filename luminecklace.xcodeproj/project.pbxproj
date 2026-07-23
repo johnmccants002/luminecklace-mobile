@@ -11,6 +11,13 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		7A0000012F0000000000000A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 3142618D2F4BC890003D52E8 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 314261942F4BC890003D52E8;
+			remoteInfo = luminecklace;
+		};
 		31FA69132F5E13A000E81769 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 3142618D2F4BC890003D52E8 /* Project object */;
@@ -37,10 +44,11 @@
 /* Begin PBXFileReference section */
 		314261952F4BC890003D52E8 /* luminecklace.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = luminecklace.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		31FA69092F5E139F00E81769 /* lumiclip.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = lumiclip.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		7A0000012F00000000000001 /* luminecklaceTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = luminecklaceTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		31FA69182F5E13A000E81769 /* Exceptions for "lumiclip" folder in "lumiclip" target */ = {
+		31FA69182F5E13A000E81769 /* Exceptions for "LumiClip" folder in "lumiclip" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -55,12 +63,17 @@
 			path = luminecklace;
 			sourceTree = "<group>";
 		};
-		31FA690A2F5E139F00E81769 /* lumiclip */ = {
+		31FA690A2F5E139F00E81769 /* LumiClip */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				31FA69182F5E13A000E81769 /* Exceptions for "lumiclip" folder in "lumiclip" target */,
+				31FA69182F5E13A000E81769 /* Exceptions for "LumiClip" folder in "lumiclip" target */,
 			);
-			path = lumiclip;
+			path = LumiClip;
+			sourceTree = "<group>";
+		};
+		7A0000012F00000000000002 /* luminecklaceTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = luminecklaceTests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -80,6 +93,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		7A0000012F00000000000005 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -87,7 +107,8 @@
 			isa = PBXGroup;
 			children = (
 				314261972F4BC890003D52E8 /* luminecklace */,
-				31FA690A2F5E139F00E81769 /* lumiclip */,
+				31FA690A2F5E139F00E81769 /* LumiClip */,
+				7A0000012F00000000000002 /* luminecklaceTests */,
 				314261962F4BC890003D52E8 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -97,6 +118,7 @@
 			children = (
 				314261952F4BC890003D52E8 /* luminecklace.app */,
 				31FA69092F5E139F00E81769 /* lumiclip.app */,
+				7A0000012F00000000000001 /* luminecklaceTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -141,7 +163,7 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				31FA690A2F5E139F00E81769 /* lumiclip */,
+				31FA690A2F5E139F00E81769 /* LumiClip */,
 			);
 			name = lumiclip;
 			packageProductDependencies = (
@@ -149,6 +171,29 @@
 			productName = lumiclip;
 			productReference = 31FA69092F5E139F00E81769 /* lumiclip.app */;
 			productType = "com.apple.product-type.application.on-demand-install-capable";
+		};
+		7A0000012F00000000000003 /* luminecklaceTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7A0000012F00000000000007 /* Build configuration list for PBXNativeTarget "luminecklaceTests" */;
+			buildPhases = (
+				7A0000012F00000000000004 /* Sources */,
+				7A0000012F00000000000005 /* Frameworks */,
+				7A0000012F00000000000006 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				7A0000012F0000000000000B /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				7A0000012F00000000000002 /* luminecklaceTests */,
+			);
+			name = luminecklaceTests;
+			packageProductDependencies = (
+			);
+			productName = luminecklaceTests;
+			productReference = 7A0000012F00000000000001 /* luminecklaceTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
 
@@ -165,6 +210,10 @@
 					};
 					31FA69082F5E139F00E81769 = {
 						CreatedOnToolsVersion = 26.2;
+					};
+					7A0000012F00000000000003 = {
+						CreatedOnToolsVersion = 26.2;
+						TestTargetID = 314261942F4BC890003D52E8;
 					};
 				};
 			};
@@ -184,6 +233,7 @@
 			targets = (
 				314261942F4BC890003D52E8 /* luminecklace */,
 				31FA69082F5E139F00E81769 /* lumiclip */,
+				7A0000012F00000000000003 /* luminecklaceTests */,
 			);
 		};
 /* End PBXProject section */
@@ -197,6 +247,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		31FA69072F5E139F00E81769 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7A0000012F00000000000006 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -220,6 +277,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		7A0000012F00000000000004 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -227,6 +291,11 @@
 			isa = PBXTargetDependency;
 			target = 31FA69082F5E139F00E81769 /* lumiclip */;
 			targetProxy = 31FA69132F5E13A000E81769 /* PBXContainerItemProxy */;
+		};
+		7A0000012F0000000000000B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 314261942F4BC890003D52E8 /* luminecklace */;
+			targetProxy = 7A0000012F0000000000000A /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -363,7 +432,6 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Lumi Necklace";
-				INFOPLIST_KEY_CFBundleURLTypes = "{\n    CFBundleTypeRole = Editor;\n    CFBundleURLName = \"luminecklace.handoff\";\n    CFBundleURLSchemes =     (\n        luminecklace\n    );\n}";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.lifestyle";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
@@ -383,7 +451,6 @@
 				PRODUCT_BUNDLE_IDENTIFIER = luminecklace.luminecklace;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
-				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -414,7 +481,6 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Lumi Necklace";
-				INFOPLIST_KEY_CFBundleURLTypes = "{\n    CFBundleTypeRole = Editor;\n    CFBundleURLName = \"luminecklace.handoff\";\n    CFBundleURLSchemes =     (\n        luminecklace\n    );\n}";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.lifestyle";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
@@ -434,7 +500,6 @@
 				PRODUCT_BUNDLE_IDENTIFIER = luminecklace.luminecklace;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
-				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -454,14 +519,14 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = lumiclip/lumiclip.entitlements;
+				CODE_SIGN_ENTITLEMENTS = LumiClip/LumiClip.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = 7HTV4A5W6Y;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = lumiclip/Info.plist;
+				INFOPLIST_FILE = LumiClip/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = luminecklace;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -493,14 +558,14 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = lumiclip/lumiclip.entitlements;
+				CODE_SIGN_ENTITLEMENTS = LumiClip/LumiClip.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = 7HTV4A5W6Y;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = lumiclip/Info.plist;
+				INFOPLIST_FILE = LumiClip/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = luminecklace;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -525,6 +590,60 @@
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;
 				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		7A0000012F00000000000008 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7HTV4A5W6Y;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = luminecklace.luminecklaceTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/luminecklace.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/luminecklace";
+			};
+			name = Debug;
+		};
+		7A0000012F00000000000009 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7HTV4A5W6Y;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = luminecklace.luminecklaceTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/luminecklace.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/luminecklace";
 			};
 			name = Release;
 		};
@@ -554,6 +673,15 @@
 			buildConfigurations = (
 				31FA69162F5E13A000E81769 /* Debug */,
 				31FA69172F5E13A000E81769 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		7A0000012F00000000000007 /* Build configuration list for PBXNativeTarget "luminecklaceTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7A0000012F00000000000008 /* Debug */,
+				7A0000012F00000000000009 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

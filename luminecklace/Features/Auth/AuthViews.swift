@@ -5,17 +5,22 @@ struct WelcomeView: View {
 
     var body: some View {
         ZStack {
-            LumiTheme.Colors.appGradient.ignoresSafeArea()
+            LumiTheme.Colors.pageBackground.ignoresSafeArea()
             FloatingHeartsBackground()
 
             VStack(spacing: 22) {
                 Spacer()
-                Text("Lumi")
-                    .font(LumiTheme.Typography.display(54))
-                    .foregroundStyle(.white)
+                HStack(spacing: 8) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(LumiTheme.Colors.rose)
+                    Text("Lumi")
+                        .font(LumiTheme.Typography.display(54))
+                        .foregroundStyle(LumiTheme.Colors.ink)
+                }
                 Text("Set up your necklace experience before it arrives.")
                     .font(LumiTheme.Typography.body(18))
-                    .foregroundStyle(.white.opacity(0.9))
+                    .foregroundStyle(LumiTheme.Colors.ink.opacity(0.72))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal)
 
@@ -43,52 +48,27 @@ struct SenderEmailAuthView: View {
 
             ScrollView {
                 VStack(spacing: 18) {
-                    Text(viewModel.isCodeStep ? "Enter your code" : "Sign in with email")
+                    Text("Sign in")
                         .font(LumiTheme.Typography.display(34))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(LumiTheme.Colors.ink)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                     LumiTextField(label: "Email", text: $viewModel.email, keyboardType: .emailAddress)
-
-                    if viewModel.isCodeStep {
-                        LumiTextField(
-                            label: "One-Time Code",
-                            text: $viewModel.otpCode,
-                            keyboardType: .numberPad,
-                            autocapitalization: .characters
-                        )
-                    }
-
-                    if let info = viewModel.infoMessage {
-                        Text(info)
-                            .foregroundStyle(.green)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
+                    LumiTextField(label: "Password", text: $viewModel.password, secure: true)
 
                     if let error = viewModel.errorMessage {
                         Text(error)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(Color(red: 0.82, green: 0.23, blue: 0.34))
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
                     PrimaryButton(
-                        title: viewModel.isCodeStep ? "Verify Code" : "Send Code",
+                        title: "Sign In",
                         isLoading: viewModel.isLoading
                     ) {
                         Task {
-                            if viewModel.isCodeStep {
-                                await viewModel.verifyOTP()
-                            } else {
-                                await viewModel.requestOTP()
-                            }
+                            await viewModel.signIn()
                         }
-                    }
-
-                    if viewModel.isCodeStep {
-                        Button("Use a different email") {
-                            viewModel.resetFlow()
-                        }
-                        .buttonStyle(SecondaryButtonStyle())
                     }
                 }
                 .padding(24)
