@@ -11,25 +11,25 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     Text("Settings")
                         .font(LumiTheme.Typography.display(34))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(LumiTheme.Colors.ink)
 
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Profile")
                             .font(LumiTheme.Typography.headline(18))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(LumiTheme.Colors.ink)
                         Text(viewModel.userEmail)
                             .font(LumiTheme.Typography.body(14))
-                            .foregroundStyle(.white.opacity(0.85))
+                            .foregroundStyle(LumiTheme.Colors.ink.opacity(0.72))
                     }
                     .glassCard()
 
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Subscription")
                             .font(LumiTheme.Typography.headline(18))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(LumiTheme.Colors.ink)
                         Text(viewModel.subscriptionTitle)
                             .font(LumiTheme.Typography.body(15).weight(.semibold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(LumiTheme.Colors.rose)
                     }
                     .glassCard()
 
@@ -39,7 +39,7 @@ struct SettingsView: View {
                         viewModel.soundEnabled = newValue
                         viewModel.applySettings()
                     }))
-                    .tint(LumiTheme.Colors.crimson)
+                    .tint(LumiTheme.Colors.rose)
                     .glassCard()
 
                     Toggle("Haptics", isOn: Binding(get: {
@@ -48,7 +48,7 @@ struct SettingsView: View {
                         viewModel.hapticsEnabled = newValue
                         viewModel.applySettings()
                     }))
-                    .tint(LumiTheme.Colors.crimson)
+                    .tint(LumiTheme.Colors.rose)
                     .glassCard()
 
                     Button("Sign Out") {

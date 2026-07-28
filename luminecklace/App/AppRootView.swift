@@ -10,12 +10,14 @@ struct AppRootView: View {
                 NavigationStack { WelcomeView() }
             case .postAuthBootstrap:
                 NavigationStack { PostAuthBootstrapView() }
-            case .noOrderAssist:
-                NavigationStack { NoOrderAssistView() }
-            case .necklaceSelection:
-                NavigationStack { NecklaceSelectionView() }
-            case .firstMessageSetup:
-                NavigationStack { FirstMessageSetupView() }
+            case .noNecklace:
+                NavigationStack { NoNecklaceView() }
+            case .senderLoadError:
+                NavigationStack { SenderLoadErrorView() }
+            case .queueEditor:
+                QueueEditorView()
+            case .lumiComposer:
+                NavigationStack { LumiComposerView() }
             case .senderHome:
                 MainTabView()
             case .recipientReveal:
@@ -25,7 +27,7 @@ struct AppRootView: View {
         .task {
             await appState.restoreSessionIfNeeded()
         }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(.light)
     }
 }
 
@@ -49,17 +51,10 @@ struct MainTabView: View {
             }
 
             NavigationStack {
-                PackagesView(viewModel: PackagesViewModel(appState: appState))
+                ExploreView(appState: appState)
             }
             .tabItem {
-                Label("Packages", systemImage: "gift.fill")
-            }
-
-            NavigationStack {
-                FavoritesView(viewModel: FavoritesViewModel(appState: appState))
-            }
-            .tabItem {
-                Label("Favorites", systemImage: "heart.fill")
+                Label("Explore", systemImage: "heart.text.square.fill")
             }
 
             NavigationStack {
@@ -69,6 +64,6 @@ struct MainTabView: View {
                 Label("Settings", systemImage: "gearshape.fill")
             }
         }
-        .tint(LumiTheme.Colors.blush)
+        .tint(LumiTheme.Colors.rose)
     }
 }

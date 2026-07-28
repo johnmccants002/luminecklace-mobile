@@ -2,7 +2,7 @@ import SwiftUI
 
 struct FloatingHeartsBackground: View {
     @State private var animate = false
-    private let heartSizes: [CGFloat] = (0..<10).map { _ in
+    private let sparkleSizes: [CGFloat] = (0..<10).map { _ in
         CGFloat(Int.random(in: 10...24))
     }
 
@@ -13,9 +13,9 @@ struct FloatingHeartsBackground: View {
 
             ZStack {
                 ForEach(0..<10, id: \.self) { index in
-                    Image(systemName: index.isMultiple(of: 2) ? "heart.fill" : "heart")
-                        .font(.system(size: heartSizes[index]))
-                        .foregroundStyle(.white.opacity(0.08))
+                    Image(systemName: index.isMultiple(of: 2) ? "sparkles" : "heart.fill")
+                        .font(.system(size: sparkleSizes[index]))
+                        .foregroundStyle(Color(red: 0.93, green: 0.47, blue: 0.55).opacity(0.08))
                         .position(
                             x: CGFloat((index * 41) % width),
                             y: animate ? CGFloat((index * 83) % height) : CGFloat((index * 37) % height)
@@ -45,7 +45,7 @@ struct HeartBurstEffect: View {
 
                 Image(systemName: "heart.fill")
                     .font(.system(size: 12))
-                    .foregroundStyle(LumiTheme.Colors.blush)
+                    .foregroundStyle(LumiTheme.Colors.rose)
                     .offset(x: x, y: y)
                     .scaleEffect(animate ? 0.1 : 1)
                     .opacity(animate ? 0 : 1)

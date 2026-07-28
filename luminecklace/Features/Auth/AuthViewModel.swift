@@ -4,11 +4,9 @@ import Foundation
 @MainActor
 final class AuthViewModel: ObservableObject {
     @Published var email = ""
-    @Published var otpCode = ""
-    @Published var isCodeStep = false
+    @Published var password = ""
     @Published var isLoading = false
     @Published var errorMessage: String?
-    @Published var infoMessage: String?
 
     private let appState: AppState
 
@@ -16,30 +14,9 @@ final class AuthViewModel: ObservableObject {
         self.appState = appState
     }
 
-    func requestOTP() async {
-        guard !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            errorMessage = "Please enter your email."
-            return
-        }
-
-        isLoading = true
-        errorMessage = nil
-        infoMessage = nil
-
-        do {
-            try await appState.authService.requestOTP(email: normalizedEmail)
-            isCodeStep = true
-            infoMessage = "Check your email and enter the one-time code."
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-
-        isLoading = false
-    }
-
-    func verifyOTP() async {
-        guard !normalizedEmail.isEmpty, !otpCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            errorMessage = "Enter your email and one-time code."
+    func signIn() async {
+        guard !normalizedEmail.isEmpty, !password.isEmpty else {
+            errorMessage = "Enter your email and password."
             return
         }
 
@@ -47,7 +24,10 @@ final class AuthViewModel: ObservableObject {
         errorMessage = nil
 
         do {
-            let result = try await appState.authService.verifyOTP(email: normalizedEmail, code: otpCode)
+            let result = try await appState.authService.signIn(
+                email: normalizedEmail,
+                password: password
+            )
             appState.completeAuth(with: result)
         } catch {
             errorMessage = error.localizedDescription
@@ -55,14 +35,6 @@ final class AuthViewModel: ObservableObject {
 
         isLoading = false
     }
-
-    func resetFlow() {
-        isCodeStep = false
-        otpCode = ""
-        errorMessage = nil
-        infoMessage = nil
-    }
-
     private var normalizedEmail: String {
         email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }

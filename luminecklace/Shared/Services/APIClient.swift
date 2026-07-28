@@ -1,7 +1,7 @@
 import Foundation
 
 enum APIConfig {
-    static let baseURL: URL = {
+    nonisolated static let baseURL: URL = {
         if let envValue = ProcessInfo.processInfo.environment["LUMI_API_BASE_URL"],
            let url = URL(string: envValue) {
             return url
@@ -10,7 +10,7 @@ enum APIConfig {
            let url = URL(string: defaultsValue) {
             return url
         }
-        return URL(string: "http://localhost:3000")!
+        return URL(string: "https://www.luminecklace.com")!
     }()
 }
 
@@ -112,11 +112,11 @@ final class APIClient {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         }
 
-        let isVerbosePath = path == "/api/auth/otp/request"
-            || path == "/api/auth/otp/verify"
-            || path == "/api/sender/claim_pending_orders_for_user"
-            || path == "/api/sender/messages/publish"
-            || path == "/api/tap/resolve_tap_message"
+        let isSenderLumiWrite = path.hasPrefix("/api/sender/necklaces/")
+            && path.hasSuffix("/lumis")
+        let isVerbosePath = path == "/api/auth/signin"
+            || path == "/api/sender/necklaces"
+            || isSenderLumiWrite
 
         if isVerbosePath {
             let hasAuthHeader = request.value(forHTTPHeaderField: "Authorization") != nil
@@ -127,7 +127,12 @@ final class APIClient {
                     partial[entry.key] = entry.value
                 }
             }
-            let requestBody = request.httpBody.flatMap { String(data: $0, encoding: .utf8) } ?? "<empty>"
+            let requestBody: String
+            if path == "/api/auth/signin" || isSenderLumiWrite {
+                requestBody = "<redacted>"
+            } else {
+                requestBody = request.httpBody.flatMap { String(data: $0, encoding: .utf8) } ?? "<empty>"
+            }
             print("[API] \(path) request method=\(method.rawValue) url=\(url.absoluteString) hasAuth=\(hasAuthHeader) headers=\(headers) body=\(requestBody)")
         }
 
@@ -156,6 +161,86 @@ final class APIClient {
         return jsonDict
     }
 
+    func request<Response: Decodable>(
+        method: HTTPMethod,
+        path: String,
+        queryItems: [URLQueryItem] = [],
+        authorized: Bool = false
+    ) async throws -> Response {
+        try await requestDecodable(
+            method: method,
+            path: path,
+            queryItems: queryItems,
+            body: Optional<EmptyRequestBody>.none,
+            authorized: authorized
+        )
+    }
+
+    func request<Response: Decodable, Body: Encodable>(
+        method: HTTPMethod,
+        path: String,
+        queryItems: [URLQueryItem] = [],
+        body: Body,
+        authorized: Bool = false
+    ) async throws -> Response {
+        try await requestDecodable(
+            method: method,
+            path: path,
+            queryItems: queryItems,
+            body: Optional(body),
+            authorized: authorized
+        )
+    }
+
+    private func requestDecodable<Response: Decodable, Body: Encodable>(
+        method: HTTPMethod,
+        path: String,
+        queryItems: [URLQueryItem],
+        body: Body?,
+        authorized: Bool
+    ) async throws -> Response {
+        var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)
+        components?.path = path
+        components?.queryItems = queryItems.isEmpty ? nil : queryItems
+        guard let url = components?.url else {
+            throw APIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = method.rawValue
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let body {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONEncoder().encode(body)
+        }
+        if authorized {
+            guard let token = tokenStore.accessToken, !token.isEmpty else {
+                throw APIError.unauthorized
+            }
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+        guard (200...299).contains(httpResponse.statusCode) else {
+            if httpResponse.statusCode == 401 {
+                throw APIError.unauthorized
+            }
+            let jsonObject = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+            let message = Self.extractMessage(from: jsonObject)
+                ?? HTTPURLResponse.localizedString(forStatusCode: httpResponse.statusCode)
+            throw APIError.serverError(statusCode: httpResponse.statusCode, message: message)
+        }
+
+        do {
+            return try JSONDecoder().decode(Response.self, from: data)
+        } catch {
+            throw APIError.invalidPayload
+        }
+    }
+
     private static func extractMessage(from json: [String: Any]) -> String? {
         if let message = json["message"] as? String, !message.isEmpty {
             return message
@@ -175,6 +260,8 @@ final class APIClient {
         return nil
     }
 }
+
+private struct EmptyRequestBody: Encodable {}
 
 enum JSONLookup {
     static func string(_ json: [String: Any], keys: [String]) -> String? {
@@ -216,6 +303,15 @@ enum JSONLookup {
     static func bool(_ json: [String: Any], keys: [String]) -> Bool? {
         for key in keys {
             if let value = json[key] as? Bool {
+                return value
+            }
+        }
+        return nil
+    }
+
+    static func int(_ json: [String: Any], keys: [String]) -> Int? {
+        for key in keys {
+            if let value = json[key] as? Int {
                 return value
             }
         }

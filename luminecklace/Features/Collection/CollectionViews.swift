@@ -17,7 +17,7 @@ struct CollectionView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     Text("Collection")
                         .font(LumiTheme.Typography.display(34))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(LumiTheme.Colors.ink)
 
                     LazyVGrid(columns: columns, spacing: 12) {
                         ForEach(viewModel.necklaces) { necklace in
@@ -52,7 +52,8 @@ struct NecklaceDetailView: View {
 
                 detailRow("SKU", value: necklace.sku)
                 detailRow("Theme", value: necklace.themeKey.capitalized)
-                detailRow("Included Package", value: necklace.includedPackage)
+                detailRow("Status", value: necklace.lifecycleStatus.replacingOccurrences(of: "_", with: " ").capitalized)
+                detailRow("Waiting Lumis", value: "\(necklace.availableLumiCount)")
                 detailRow("Animation Preview", value: "Fade + soft shimmer")
 
                 PrimaryButton(title: necklace.isEquipped ? "Currently Equipped" : "Set as Equipped") {
@@ -71,11 +72,11 @@ struct NecklaceDetailView: View {
         HStack {
             Text(title)
                 .font(LumiTheme.Typography.body(14).weight(.medium))
-                .foregroundStyle(.white.opacity(0.75))
+                .foregroundStyle(LumiTheme.Colors.ink.opacity(0.68))
             Spacer()
             Text(value)
                 .font(LumiTheme.Typography.body(15).weight(.semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(LumiTheme.Colors.ink)
         }
         .glassCard()
     }

@@ -7,6 +7,8 @@ import SwiftUI
 
 struct HeartParticle: View {
     let xPosition: CGFloat
+    let startY: CGFloat
+    let endY: CGFloat
     let size: CGFloat
     let duration: Double
     let delay: Double
@@ -22,9 +24,9 @@ struct HeartParticle: View {
                 .foregroundStyle(Color.white.opacity(opacity))
                 .position(
                     x: geometry.size.width * xPosition + (isAnimating ? drift : -drift),
-                    y: isAnimating ? -size * 2 : geometry.size.height + size * 2
+                    y: geometry.size.height * (isAnimating ? endY : startY)
                 )
-                .scaleEffect(isAnimating ? 1.1 : 0.9)
+                .scaleEffect(isAnimating ? 1.04 : 0.94)
                 .blur(radius: 0.4)
                 .onAppear {
                     withAnimation(
@@ -37,6 +39,6 @@ struct HeartParticle: View {
                 }
         }
         .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
-

@@ -9,21 +9,20 @@ import SwiftUI
 
 @main
 struct lumiclipApp: App {
-    @StateObject private var clipModel = ClipModel()
+    @StateObject private var viewModel = RecipientClipViewModel()
 
     var body: some Scene {
         WindowGroup {
-            LandingView()
-                .environmentObject(clipModel)
+            RecipientClipRootView(viewModel: viewModel)
                 .onOpenURL { url in
-                    clipModel.handle(url: url)
+                    viewModel.handle(url: url)
                 }
                 .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { userActivity in
                     guard let url = userActivity.webpageURL else { return }
-                    clipModel.handle(url: url)
+                    viewModel.handle(url: url)
                 }
                 .task {
-                    clipModel.loadInitialInvocationURLIfNeeded()
+                    viewModel.loadInitialInvocationURLIfNeeded()
                 }
         }
     }

@@ -1,6 +1,11 @@
 import Foundation
 
 enum MockData {
+    static let fullReserveSummary = LumiReserveSummary(
+        enabled: true,
+        lumiCount: nil
+    )
+
     static let defaultPackages: [Package] = [
         Package(id: "love", title: "Love", isPremium: false, isEnabled: true),
         Package(id: "motivation", title: "Motivation", isPremium: false, isEnabled: true),
@@ -17,7 +22,8 @@ enum MockData {
             themeKey: "rose",
             isEquipped: true,
             rarity: "Rare",
-            includedPackage: "Love"
+            includedPackage: "Love",
+            reserve: fullReserveSummary
         ),
         NecklaceTag(
             id: UUID().uuidString,

@@ -15,9 +15,9 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "31FA69082F5E139F00E81769"
-               BuildableName = "lumiclip.app"
-               BlueprintName = "lumiclip"
+               BlueprintIdentifier = "314261942F4BC890003D52E8"
+               BuildableName = "luminecklace.app"
+               BlueprintName = "luminecklace"
                ReferencedContainer = "container:luminecklace.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
@@ -29,9 +29,9 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "7B0000012F00000000000003"
-               BuildableName = "LumiClipTests.xctest"
-               BlueprintName = "LumiClipTests"
+               BlueprintIdentifier = "7A0000012F00000000000003"
+               BuildableName = "luminecklaceTests.xctest"
+               BlueprintName = "luminecklaceTests"
                ReferencedContainer = "container:luminecklace.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
@@ -41,17 +41,16 @@
       buildConfiguration = "Debug"
       selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
-      shouldUseLaunchSchemeArgsEnv = "YES"
-      shouldAutocreateTestPlan = "YES">
+      shouldUseLaunchSchemeArgsEnv = "YES">
       <Testables>
          <TestableReference
             skipped = "NO"
-            parallelizable = "NO">
+            parallelizable = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "7B0000012F00000000000003"
-               BuildableName = "LumiClipTests.xctest"
-               BlueprintName = "LumiClipTests"
+               BlueprintIdentifier = "7A0000012F00000000000003"
+               BuildableName = "luminecklaceTests.xctest"
+               BlueprintName = "luminecklaceTests"
                ReferencedContainer = "container:luminecklace.xcodeproj">
             </BuildableReference>
          </TestableReference>
@@ -59,7 +58,6 @@
    </TestAction>
    <LaunchAction
       buildConfiguration = "Debug"
-      appClipInvocationURLString = "https://www.luminecklace.com/t/johnmccants-demo-token-active"
       selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
       launchStyle = "0"
@@ -72,16 +70,15 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "31FA69082F5E139F00E81769"
-            BuildableName = "lumiclip.app"
-            BlueprintName = "lumiclip"
+            BlueprintIdentifier = "314261942F4BC890003D52E8"
+            BuildableName = "luminecklace.app"
+            BlueprintName = "luminecklace"
             ReferencedContainer = "container:luminecklace.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
    <ProfileAction
       buildConfiguration = "Release"
-      appClipInvocationURLString = "https://www.luminecklace.com/t/johnmccants-demo-token-active"
       shouldUseLaunchSchemeArgsEnv = "YES"
       savedToolIdentifier = ""
       useCustomWorkingDirectory = "NO"
@@ -90,9 +87,9 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "31FA69082F5E139F00E81769"
-            BuildableName = "lumiclip.app"
-            BlueprintName = "lumiclip"
+            BlueprintIdentifier = "314261942F4BC890003D52E8"
+            BuildableName = "luminecklace.app"
+            BlueprintName = "luminecklace"
             ReferencedContainer = "container:luminecklace.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
