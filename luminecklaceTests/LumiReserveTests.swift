@@ -10,11 +10,7 @@ final class LumiReserveTests: XCTestCase {
         let reserve = try XCTUnwrap(necklace.reserve)
 
         XCTAssertTrue(reserve.enabled)
-        XCTAssertEqual(reserve.approvedCount, 18)
-        XCTAssertEqual(reserve.totalCount, 18)
-        XCTAssertEqual(reserve.categories.count, 5)
-        XCTAssertEqual(reserve.categories.first?.key, "affection")
-        XCTAssertEqual(reserve.categories.first?.approvedCount, 4)
+        XCTAssertNil(reserve.lumiCount)
     }
 
     func testMissingReserveFieldIsUnavailable() throws {
@@ -38,76 +34,92 @@ final class LumiReserveTests: XCTestCase {
 
     func testDisabledReserveState() throws {
         let summary = try decodeSummary(enabled: false, approvedCount: 18)
+        let state = LumiReserveViewState(summary: summary)
 
-        XCTAssertEqual(LumiReserveViewState(summary: summary), .disabled(summary))
-        XCTAssertEqual(LumiReserveViewState(summary: summary).statusLabel, "Disabled")
-        XCTAssertEqual(
-            LumiReserveViewState(summary: summary).message,
-            "Lumi Reserve is turned off for this necklace."
-        )
+        XCTAssertEqual(state, .disabled(summary))
+        XCTAssertEqual(state.title, "Reserve is off")
+        XCTAssertEqual(state.detail, "Only your personal Lumis will reveal on this necklace.")
     }
 
-    func testZeroApprovedReserveState() throws {
+    func testEmptyReserveQueueState() throws {
         let summary = try decodeSummary(enabled: true, approvedCount: 0)
+        let state = LumiReserveViewState(summary: summary)
 
-        XCTAssertEqual(LumiReserveViewState(summary: summary), .empty(summary))
-        XCTAssertEqual(
-            LumiReserveViewState(summary: summary).message,
-            "No Reserve Lumis are approved yet."
-        )
+        XCTAssertEqual(state, .empty(summary))
+        XCTAssertEqual(state.title, "No Reserve Lumis")
+        XCTAssertEqual(state.detail, "There are no extra Lumis behind your personal queue.")
     }
 
-    func testPartiallyApprovedReserveState() throws {
+    func testLegacyApprovalCountIsNotDisplayedAsQueueCount() throws {
         let summary = try decodeSummary(enabled: true, approvedCount: 12)
+        let state = LumiReserveViewState(summary: summary)
 
-        XCTAssertEqual(LumiReserveViewState(summary: summary), .partiallyApproved(summary))
-        XCTAssertEqual(
-            LumiReserveViewState(summary: summary).message,
-            "12 of 18 Reserve Lumis approved."
-        )
+        XCTAssertEqual(state, .ready(summary))
+        XCTAssertNil(summary.lumiCount)
+        XCTAssertEqual(state.title, "Lumi Reserve ready")
+        XCTAssertEqual(state.detail, "They wait behind your personal queue and begin once it is empty.")
     }
 
-    func testAllReserveMessagesApprovedState() throws {
+    func testAllApprovedTemplatesDoNotBecomeFixedReserveCount() throws {
         let summary = try decodeSummary(enabled: true, approvedCount: 18)
+        let state = LumiReserveViewState(summary: summary)
 
-        XCTAssertEqual(LumiReserveViewState(summary: summary), .enabled(summary))
-        XCTAssertEqual(
-            LumiReserveViewState(summary: summary).message,
-            "Lumi Reserve is ready when your personal queue runs out."
-        )
+        XCTAssertEqual(state, .ready(summary))
+        XCTAssertNil(summary.lumiCount)
+        XCTAssertEqual(state.title, "Lumi Reserve ready")
     }
 
-    func testKnownAndUnknownCategoryLabels() {
-        XCTAssertEqual(
-            LumiReserveCategorySummary(key: "encouragement", approvedCount: 4, totalCount: 4).displayName,
-            "Encouragement"
+    func testExplicitAvailableCountIsDisplayed() throws {
+        let summary = try XCTUnwrap(
+            service.mapReserveSummary(
+                from: Fixtures.reserve(
+                    enabled: true,
+                    approvedCount: 18,
+                    availableCount: 2
+                )
+            )
         )
-        XCTAssertEqual(
-            LumiReserveCategorySummary(key: "quiet_support", approvedCount: 1, totalCount: 2).displayName,
-            "Quiet Support"
-        )
+
+        XCTAssertEqual(summary.lumiCount, 2)
+        XCTAssertEqual(LumiReserveViewState(summary: summary).title, "2 Lumis in Reserve")
     }
 
-    func testAccessibilityLabelsIncludeStatusAndCounts() throws {
+    func testExplicitZeroAvailableCountDisplaysNone() throws {
+        let summary = try XCTUnwrap(
+            service.mapReserveSummary(
+                from: Fixtures.reserve(
+                    enabled: true,
+                    approvedCount: 18,
+                    availableCount: 0
+                )
+            )
+        )
+
+        XCTAssertEqual(summary.lumiCount, 0)
+        XCTAssertEqual(LumiReserveViewState(summary: summary), .empty(summary))
+        XCTAssertEqual(LumiReserveViewState(summary: summary).title, "No Reserve Lumis")
+    }
+
+    func testAccessibilityLabelUsesQueueLanguage() throws {
         let summary = try decodeSummary(enabled: true, approvedCount: 12)
-        let category = LumiReserveCategorySummary(
-            key: "reassurance",
-            approvedCount: 2,
-            totalCount: 3
-        )
+        let state = LumiReserveViewState(summary: summary)
 
-        XCTAssertEqual(LumiReserveViewState(summary: summary).statusLabel, "Enabled")
-        XCTAssertEqual(summary.approvalAccessibilityLabel, "12 of 18 Lumi Reserve messages approved")
-        XCTAssertEqual(category.approvalAccessibilityLabel, "Reassurance, 2 of 3 approved")
+        XCTAssertEqual(
+            state.accessibilityLabel,
+            "Lumi Reserve. Lumi Reserve ready. They wait behind your personal queue and begin once it is empty."
+        )
     }
 
     func testLoadingAndUnavailableStates() {
-        XCTAssertEqual(LumiReserveViewState.loading.statusLabel, "Loading")
-        XCTAssertEqual(LumiReserveViewState.loading.message, "Loading Reserve details.")
-        XCTAssertEqual(LumiReserveViewState.unavailable.statusLabel, "Unavailable")
+        XCTAssertEqual(LumiReserveViewState.loading.title, "Checking your Reserve")
         XCTAssertEqual(
-            LumiReserveViewState.unavailable.message,
-            "Reserve details are unavailable right now."
+            LumiReserveViewState.loading.detail,
+            "Finding the Lumis waiting behind your personal queue."
+        )
+        XCTAssertEqual(LumiReserveViewState.unavailable.title, "Reserve unavailable")
+        XCTAssertEqual(
+            LumiReserveViewState.unavailable.detail,
+            "Your personal queue is still ready and unaffected."
         )
     }
 
@@ -156,6 +168,83 @@ final class LumiReserveTests: XCTestCase {
         XCTAssertEqual(necklace.queuedLumis.map(\.id), ["first", "second", "third"])
     }
 
+    func testDecodesRecentlyRevealedHistoryInBackendOrder() throws {
+        let necklace = try XCTUnwrap(
+            service.mapNecklace(
+                from: Fixtures.necklace(
+                    recentlyRevealed: [
+                        Fixtures.revealedLumi(
+                            id: "revealed-2",
+                            text: "Most recent",
+                            revealedAt: "2026-07-25T18:42:11.123Z"
+                        ),
+                        Fixtures.revealedLumi(
+                            id: "revealed-1",
+                            text: "Earlier",
+                            revealedAt: "2026-07-24T08:12:00Z"
+                        )
+                    ]
+                )
+            )
+        )
+
+        XCTAssertEqual(necklace.recentlyRevealed.map(\.id), ["revealed-2", "revealed-1"])
+        XCTAssertEqual(necklace.recentlyRevealed.map(\.text), ["Most recent", "Earlier"])
+        XCTAssertLessThan(
+            necklace.recentlyRevealed[1].revealedAt,
+            necklace.recentlyRevealed[0].revealedAt
+        )
+    }
+
+    func testMissingRecentlyRevealedFieldDecodesAsEmpty() throws {
+        let necklace = try XCTUnwrap(service.mapNecklace(from: Fixtures.necklace()))
+
+        XCTAssertTrue(necklace.recentlyRevealed.isEmpty)
+    }
+
+    func testMalformedRevealIsDroppedWithoutBreakingNecklace() throws {
+        let necklace = try XCTUnwrap(
+            service.mapNecklace(
+                from: Fixtures.necklace(
+                    recentlyRevealed: [
+                        Fixtures.revealedLumi(
+                            id: "valid",
+                            text: "Still visible",
+                            revealedAt: "2026-07-25T18:42:11Z"
+                        ),
+                        Fixtures.revealedLumi(
+                            id: "invalid",
+                            text: "Bad timestamp",
+                            revealedAt: "not-a-date"
+                        )
+                    ]
+                )
+            )
+        )
+
+        XCTAssertEqual(necklace.recentlyRevealed.map(\.id), ["valid"])
+    }
+
+    func testRecentlyRevealedContentStaysOutOfPersonalQueue() throws {
+        let necklace = try XCTUnwrap(
+            service.mapNecklace(
+                from: Fixtures.necklace(
+                    queue: [Fixtures.lumi(id: "personal", text: "Still waiting")],
+                    recentlyRevealed: [
+                        Fixtures.revealedLumi(
+                            id: "revealed",
+                            text: "Already seen",
+                            revealedAt: "2026-07-25T18:42:11Z"
+                        )
+                    ]
+                )
+            )
+        )
+
+        XCTAssertEqual(necklace.queuedLumis.map(\.id), ["personal"])
+        XCTAssertEqual(necklace.recentlyRevealed.map(\.id), ["revealed"])
+    }
+
     private func decodeSummary(enabled: Bool, approvedCount: Int) throws -> LumiReserveSummary {
         try XCTUnwrap(
             service.mapReserveSummary(
@@ -172,7 +261,8 @@ private enum Fixtures {
         queue: [[String: Any]] = [
             lumi(id: "personal-1", text: "First personal Lumi"),
             lumi(id: "personal-2", text: "Second personal Lumi")
-        ]
+        ],
+        recentlyRevealed: [[String: Any]]? = nil
     ) -> [String: Any] {
         var payload: [String: Any] = [
             "id": "f5bea6df-cdf4-4561-b570-b20ccf74f45c",
@@ -185,14 +275,16 @@ private enum Fixtures {
             "queue": queue
         ]
         payload["reserve"] = reserve
+        payload["recentlyRevealed"] = recentlyRevealed
         return payload
     }
 
     static func reserve(
         enabled: Bool = true,
-        approvedCount: Int = 18
+        approvedCount: Int = 18,
+        availableCount: Int? = nil
     ) -> [String: Any] {
-        [
+        var payload: [String: Any] = [
             "enabled": enabled,
             "approvedCount": approvedCount,
             "totalCount": 18,
@@ -204,6 +296,8 @@ private enum Fixtures {
                 category("reassurance", approved: approvedCount == 18 ? 3 : 0, total: 3)
             ]
         ]
+        payload["availableCount"] = availableCount
+        return payload
     }
 
     static func category(_ key: String, approved: Int, total: Int) -> [String: Any] {
@@ -224,5 +318,11 @@ private enum Fixtures {
                 "sound": "soft"
             ]
         ]
+    }
+
+    static func revealedLumi(id: String, text: String, revealedAt: String) -> [String: Any] {
+        var payload = lumi(id: id, text: text)
+        payload["revealedAt"] = revealedAt
+        return payload
     }
 }

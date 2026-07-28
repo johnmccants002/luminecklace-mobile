@@ -193,18 +193,33 @@ struct QueueEditorView: View {
                 queueHeader
 
                 if appState.queueMessages.isEmpty {
+                    queueSectionHeader(
+                        title: "Personal queue",
+                        subtitle: "Your own Lumis always reveal first."
+                    )
+
                     EmptyStateView(
                         title: "Your queue is empty",
                         subtitle: "Reserve will keep the necklace glowing until you add another personal Lumi.",
                         systemImage: "sparkles"
                     )
 
-                    LumiReserveCard(
+                    queueSectionHeader(
+                        title: "Lumi Reserve",
+                        subtitle: "Extra Lumis waiting behind your personal queue."
+                    )
+
+                    LumiReserveQueueCard(
                         state: LumiReserveViewState(summary: appState.equippedReserve)
                     )
 
                     Spacer(minLength: 0)
                 } else {
+                    queueSectionHeader(
+                        title: "Personal queue",
+                        subtitle: "\(appState.queueMessages.count) \(appState.queueMessages.count == 1 ? "Lumi" : "Lumis") in your order."
+                    )
+
                     MessageCardView(message: appState.queueMessages.first)
 
                     Text("Drag to reorder. The top item sends first.")
@@ -226,9 +241,16 @@ struct QueueEditorView: View {
                         .onMove(perform: appState.moveQueueMessages)
                         .onDelete(perform: appState.deleteQueueMessages)
 
-                        LumiReserveCard(
-                            state: LumiReserveViewState(summary: appState.equippedReserve)
-                        )
+                        VStack(alignment: .leading, spacing: 10) {
+                            queueSectionHeader(
+                                title: "Lumi Reserve",
+                                subtitle: "Extra Lumis waiting behind your personal queue."
+                            )
+
+                            LumiReserveQueueCard(
+                                state: LumiReserveViewState(summary: appState.equippedReserve)
+                            )
+                        }
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
                         .listRowInsets(EdgeInsets(top: 14, leading: 0, bottom: 8, trailing: 0))
@@ -268,123 +290,102 @@ struct QueueEditorView: View {
             .frame(maxWidth: 76)
         }
     }
+
+    private func queueSectionHeader(title: String, subtitle: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(LumiTheme.Typography.headline(19))
+                .foregroundStyle(LumiTheme.Colors.ink)
+
+            Text(subtitle)
+                .font(LumiTheme.Typography.body(13))
+                .foregroundStyle(LumiTheme.Colors.ink.opacity(0.62))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .combine)
+    }
 }
 
-struct LumiReserveCard: View {
+struct LumiReserveQueueCard: View {
     let state: LumiReserveViewState
+    var onOpen: (() -> Void)? = nil
 
+    @ViewBuilder
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 10) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(LumiTheme.Colors.gold)
+        if let onOpen {
+            Button(action: onOpen) {
+                content(showsDisclosure: true)
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Opens the queue editor")
+        } else {
+            content(showsDisclosure: false)
+        }
+    }
 
-                Text("Lumi Reserve")
-                    .font(LumiTheme.Typography.headline(20))
+    private func content(showsDisclosure: Bool) -> some View {
+        HStack(spacing: 14) {
+            reserveQueueMark
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(state.title)
+                    .font(LumiTheme.Typography.headline(17))
                     .foregroundStyle(LumiTheme.Colors.ink)
+                    .fixedSize(horizontal: false, vertical: true)
 
-                Spacer(minLength: 8)
-
-                statusBadge
+                Text(state.detail)
+                    .font(LumiTheme.Typography.body(14))
+                    .foregroundStyle(LumiTheme.Colors.ink.opacity(0.66))
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
-            Text(state.message)
-                .font(LumiTheme.Typography.body(14))
-                .foregroundStyle(LumiTheme.Colors.ink.opacity(0.68))
-                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 4)
 
             if case .loading = state {
                 ProgressView()
                     .tint(LumiTheme.Colors.rose)
-                    .accessibilityLabel("Loading Lumi Reserve details")
-            } else if let summary = state.summary {
-                reserveCounts(summary)
+                    .accessibilityHidden(true)
+            } else if showsDisclosure {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(LumiTheme.Colors.ink.opacity(0.42))
+                    .accessibilityHidden(true)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white.opacity(0.88))
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(LumiTheme.Colors.cardStroke, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .shadow(color: LumiTheme.Colors.rose.opacity(0.08), radius: 12, y: 6)
+        .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(state.accessibilityLabel)
+    }
 
-                if !summary.categories.isEmpty {
-                    categoryGrid(summary.categories)
+    private var reserveQueueMark: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .fill(LumiTheme.Colors.roseSoft.opacity(0.72))
+                .frame(width: 48, height: 48)
+
+            VStack(spacing: 3) {
+                ForEach(0..<3, id: \.self) { index in
+                    Capsule()
+                        .fill(index == 0 ? LumiTheme.Colors.rose : LumiTheme.Colors.gold.opacity(0.65))
+                        .frame(width: CGFloat(22 - index * 3), height: 4)
                 }
             }
 
-            Label(
-                "Personal Lumis always reveal before Reserve Lumis.",
-                systemImage: "checkmark.shield"
-            )
-            .font(LumiTheme.Typography.body(12))
-            .foregroundStyle(LumiTheme.Colors.ink.opacity(0.56))
+            Image(systemName: "sparkle")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(LumiTheme.Colors.rose)
+                .offset(x: 17, y: -17)
         }
-        .glassCard()
-    }
-
-    private var statusBadge: some View {
-        Text(state.statusLabel)
-            .font(LumiTheme.Typography.body(12).weight(.semibold))
-            .foregroundStyle(statusColor)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(statusColor.opacity(0.12))
-            .clipShape(Capsule())
-            .accessibilityLabel("Lumi Reserve status: \(state.statusLabel)")
-    }
-
-    private var statusColor: Color {
-        switch state {
-        case .empty, .partiallyApproved, .enabled:
-            return LumiTheme.Colors.rose
-        case .loading, .unavailable, .disabled:
-            return LumiTheme.Colors.ink.opacity(0.58)
-        }
-    }
-
-    private func reserveCounts(_ summary: LumiReserveSummary) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("\(summary.approvedCount) of \(summary.totalCount) approved")
-                .font(LumiTheme.Typography.headline(17))
-                .foregroundStyle(LumiTheme.Colors.ink)
-                .accessibilityLabel(summary.approvalAccessibilityLabel)
-
-            if summary.totalCount > 0 {
-                ProgressView(
-                    value: Double(summary.approvedCount),
-                    total: Double(summary.totalCount)
-                )
-                .tint(summary.enabled ? LumiTheme.Colors.rose : LumiTheme.Colors.ink.opacity(0.35))
-                .accessibilityHidden(true)
-            }
-        }
-    }
-
-    private func categoryGrid(_ categories: [LumiReserveCategorySummary]) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Reserve categories")
-                .font(LumiTheme.Typography.body(13).weight(.semibold))
-                .foregroundStyle(LumiTheme.Colors.ink.opacity(0.72))
-
-            LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: 138), spacing: 10)],
-                alignment: .leading,
-                spacing: 10
-            ) {
-                ForEach(categories) { category in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(category.displayName)
-                            .font(LumiTheme.Typography.body(13).weight(.semibold))
-                            .foregroundStyle(LumiTheme.Colors.ink)
-                            .fixedSize(horizontal: false, vertical: true)
-
-                        Text("\(category.approvedCount) of \(category.totalCount)")
-                            .font(LumiTheme.Typography.body(12))
-                            .foregroundStyle(LumiTheme.Colors.ink.opacity(0.62))
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(11)
-                    .background(LumiTheme.Colors.roseSoft.opacity(0.54))
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(category.approvalAccessibilityLabel)
-                }
-            }
-        }
+        .accessibilityHidden(true)
     }
 }
 
@@ -411,24 +412,14 @@ private struct QueueMessageRowView: View {
                     .foregroundStyle(LumiTheme.Colors.ink)
                     .lineLimit(3)
 
-                HStack(spacing: 8) {
-                    Text(message.packageId.capitalized)
+                if index == 0 {
+                    Text("Sends first")
                         .font(LumiTheme.Typography.body(11).weight(.semibold))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(LumiTheme.Colors.roseSoft)
-                        .foregroundStyle(LumiTheme.Colors.rose)
+                        .background(LumiTheme.Colors.sand.opacity(0.35))
+                        .foregroundStyle(LumiTheme.Colors.ink.opacity(0.75))
                         .clipShape(Capsule())
-
-                    if index == 0 {
-                        Text("Sends first")
-                            .font(LumiTheme.Typography.body(11).weight(.semibold))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(LumiTheme.Colors.sand.opacity(0.35))
-                            .foregroundStyle(LumiTheme.Colors.ink.opacity(0.75))
-                            .clipShape(Capsule())
-                    }
                 }
             }
 

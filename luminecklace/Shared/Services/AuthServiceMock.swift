@@ -83,7 +83,12 @@ final class AuthService {
                 // Continue with a local fallback when /me is unavailable.
             }
         }
-        return User(id: UUID().uuidString, email: fallbackEmail, subscriptionTier: .free)
+        return User(
+            id: UUID().uuidString,
+            email: fallbackEmail,
+            displayName: nil,
+            subscriptionTier: .free
+        )
     }
 
     private func parseToken(from payload: [String: Any]) -> String? {
@@ -110,8 +115,24 @@ final class AuthService {
 
     private func parseUser(from payload: [String: Any]) -> User? {
         for root in JSONLookup.rootCandidates(from: payload) {
-            let userDict = JSONLookup.dictionary(root, keys: ["user", "profile"]) ?? root
-            if let user = mapUser(from: userDict) {
+            if var userDict = JSONLookup.dictionary(root, keys: ["user"]) {
+                if displayName(in: userDict) == nil,
+                   let profile = JSONLookup.dictionary(root, keys: ["profile"]),
+                   let profileDisplayName = displayName(in: profile) {
+                    userDict["displayName"] = profileDisplayName
+                }
+
+                if let user = mapUser(from: userDict) {
+                    return user
+                }
+            }
+
+            if let profile = JSONLookup.dictionary(root, keys: ["profile"]),
+               let user = mapUser(from: profile) {
+                return user
+            }
+
+            if let user = mapUser(from: root) {
                 return user
             }
         }
@@ -123,8 +144,20 @@ final class AuthService {
             return nil
         }
         let id = JSONLookup.string(dict, keys: ["id", "_id", "userId"]) ?? UUID().uuidString
+        let metadata = JSONLookup.dictionary(
+            dict,
+            keys: ["profile", "userMetadata", "user_metadata", "metadata"]
+        )
+        let displayName = displayName(in: dict) ?? metadata.flatMap(displayName(in:))
         let tierText = (JSONLookup.string(dict, keys: ["subscriptionTier", "tier", "subscription"]) ?? "free").lowercased()
         let tier: SubscriptionTier = tierText == "premium" ? .premium : .free
-        return User(id: id, email: email, subscriptionTier: tier)
+        return User(id: id, email: email, displayName: displayName, subscriptionTier: tier)
+    }
+
+    private func displayName(in dict: [String: Any]) -> String? {
+        JSONLookup.string(
+            dict,
+            keys: ["firstName", "first_name", "displayName", "display_name", "fullName", "full_name", "name"]
+        )
     }
 }

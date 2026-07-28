@@ -86,17 +86,25 @@ nonisolated struct NecklacePresentation: Decodable, Hashable {
     let theme: LumiPresentationTheme
     let animation: LumiPresentationAnimation
     let sound: LumiPresentationSound?
+    let revealPreset: LumiMessageRevealPreset
 
     private enum CodingKeys: String, CodingKey {
         case theme
         case animation
         case sound
+        case revealPreset
     }
 
-    init(theme: LumiPresentationTheme, animation: LumiPresentationAnimation, sound: LumiPresentationSound?) {
+    init(
+        theme: LumiPresentationTheme,
+        animation: LumiPresentationAnimation,
+        sound: LumiPresentationSound?,
+        revealPreset: LumiMessageRevealPreset = .wordRise
+    ) {
         self.theme = theme
         self.animation = animation
         self.sound = sound
+        self.revealPreset = revealPreset
     }
 
     init(from decoder: Decoder) throws {
@@ -104,10 +112,12 @@ nonisolated struct NecklacePresentation: Decodable, Hashable {
         let themeValue = try container.decodeIfPresent(String.self, forKey: .theme)
         let animationValue = try container.decodeIfPresent(String.self, forKey: .animation)
         let soundValue = try container.decodeIfPresent(String.self, forKey: .sound)
+        let revealPresetValue = try container.decodeIfPresent(String.self, forKey: .revealPreset)
 
         theme = LumiPresentationTheme(rawValue: themeValue ?? "") ?? .heart
         animation = LumiPresentationAnimation(rawValue: animationValue ?? "") ?? .breathe
         sound = soundValue.flatMap(LumiPresentationSound.init(rawValue:))
+        revealPreset = LumiMessageRevealPreset(rawValue: revealPresetValue ?? "") ?? .wordRise
     }
 }
 
@@ -121,6 +131,11 @@ nonisolated enum LumiPresentationAnimation: String, Decodable, Hashable {
     case breathe
     case shimmer
     case still
+}
+
+nonisolated enum LumiMessageRevealPreset: String, Decodable, Hashable {
+    case wordRise
+    case crossfade
 }
 
 nonisolated enum LumiPresentationSound: String, Decodable, Hashable {

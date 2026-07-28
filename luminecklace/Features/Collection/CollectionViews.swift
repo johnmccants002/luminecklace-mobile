@@ -54,7 +54,6 @@ struct NecklaceDetailView: View {
                 detailRow("Theme", value: necklace.themeKey.capitalized)
                 detailRow("Status", value: necklace.lifecycleStatus.replacingOccurrences(of: "_", with: " ").capitalized)
                 detailRow("Waiting Lumis", value: "\(necklace.availableLumiCount)")
-                detailRow("Included Package", value: necklace.includedPackage)
                 detailRow("Animation Preview", value: "Fade + soft shimmer")
 
                 PrimaryButton(title: necklace.isEquipped ? "Currently Equipped" : "Set as Equipped") {

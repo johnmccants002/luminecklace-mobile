@@ -8,7 +8,18 @@ enum SubscriptionTier: String, Codable {
 struct User: Identifiable, Codable {
     let id: String
     let email: String
+    let displayName: String?
     let subscriptionTier: SubscriptionTier
+
+    var firstName: String? {
+        guard let displayName = displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !displayName.isEmpty,
+              let firstName = displayName.split(whereSeparator: \.isWhitespace).first else {
+            return nil
+        }
+
+        return String(firstName)
+    }
 }
 
 struct Experience: Codable, Hashable {
@@ -17,48 +28,9 @@ struct Experience: Codable, Hashable {
     let soundKey: String
 }
 
-struct LumiReserveCategorySummary: Identifiable, Hashable {
-    var id: String { key }
-
-    let key: String
-    let approvedCount: Int
-    let totalCount: Int
-
-    var displayName: String {
-        switch key.lowercased() {
-        case "affection":
-            return "Affection"
-        case "comfort":
-            return "Comfort"
-        case "encouragement":
-            return "Encouragement"
-        case "presence":
-            return "Presence"
-        case "reassurance":
-            return "Reassurance"
-        default:
-            let readableKey = key
-                .replacingOccurrences(of: "_", with: " ")
-                .replacingOccurrences(of: "-", with: " ")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            return readableKey.isEmpty ? "Other" : readableKey.capitalized
-        }
-    }
-
-    var approvalAccessibilityLabel: String {
-        "\(displayName), \(approvedCount) of \(totalCount) approved"
-    }
-}
-
 struct LumiReserveSummary: Hashable {
     let enabled: Bool
-    let approvedCount: Int
-    let totalCount: Int
-    let categories: [LumiReserveCategorySummary]
-
-    var approvalAccessibilityLabel: String {
-        "\(approvedCount) of \(totalCount) Lumi Reserve messages approved"
-    }
+    let lumiCount: Int?
 }
 
 enum LumiReserveViewState: Hashable {
@@ -66,8 +38,7 @@ enum LumiReserveViewState: Hashable {
     case unavailable
     case disabled(LumiReserveSummary)
     case empty(LumiReserveSummary)
-    case partiallyApproved(LumiReserveSummary)
-    case enabled(LumiReserveSummary)
+    case ready(LumiReserveSummary)
 
     init(summary: LumiReserveSummary?) {
         guard let summary else {
@@ -77,12 +48,10 @@ enum LumiReserveViewState: Hashable {
 
         if !summary.enabled {
             self = .disabled(summary)
-        } else if summary.approvedCount == 0 {
+        } else if summary.lumiCount == 0 {
             self = .empty(summary)
-        } else if summary.approvedCount < summary.totalCount {
-            self = .partiallyApproved(summary)
         } else {
-            self = .enabled(summary)
+            self = .ready(summary)
         }
     }
 
@@ -92,40 +61,47 @@ enum LumiReserveViewState: Hashable {
             return nil
         case let .disabled(summary),
              let .empty(summary),
-             let .partiallyApproved(summary),
-             let .enabled(summary):
+             let .ready(summary):
             return summary
         }
     }
 
-    var statusLabel: String {
+    var title: String {
         switch self {
         case .loading:
-            return "Loading"
+            return "Checking your Reserve"
         case .unavailable:
-            return "Unavailable"
+            return "Reserve unavailable"
         case .disabled:
-            return "Disabled"
-        case .empty, .partiallyApproved, .enabled:
-            return "Enabled"
+            return "Reserve is off"
+        case .empty:
+            return "No Reserve Lumis"
+        case let .ready(summary):
+            guard let lumiCount = summary.lumiCount else {
+                return "Lumi Reserve ready"
+            }
+            let noun = lumiCount == 1 ? "Lumi" : "Lumis"
+            return "\(lumiCount) \(noun) in Reserve"
         }
     }
 
-    var message: String {
+    var detail: String {
         switch self {
         case .loading:
-            return "Loading Reserve details."
+            return "Finding the Lumis waiting behind your personal queue."
         case .unavailable:
-            return "Reserve details are unavailable right now."
+            return "Your personal queue is still ready and unaffected."
         case .disabled:
-            return "Lumi Reserve is turned off for this necklace."
+            return "Only your personal Lumis will reveal on this necklace."
         case .empty:
-            return "No Reserve Lumis are approved yet."
-        case let .partiallyApproved(summary):
-            return "\(summary.approvedCount) of \(summary.totalCount) Reserve Lumis approved."
-        case .enabled:
-            return "Lumi Reserve is ready when your personal queue runs out."
+            return "There are no extra Lumis behind your personal queue."
+        case .ready:
+            return "They wait behind your personal queue and begin once it is empty."
         }
+    }
+
+    var accessibilityLabel: String {
+        "Lumi Reserve. \(title). \(detail)"
     }
 }
 
@@ -141,6 +117,7 @@ struct NecklaceTag: Identifiable, Hashable {
     var availableLumiCount: Int = 0
     var nextLumi: Message? = nil
     var queuedLumis: [Message] = []
+    var recentlyRevealed: [RevealedLumi] = []
     var reserve: LumiReserveSummary? = nil
 }
 
@@ -156,6 +133,13 @@ struct Message: Identifiable, Hashable, Codable {
     let text: String
     let packageId: String
     let timestamp: Date
+    let experience: Experience
+}
+
+struct RevealedLumi: Identifiable, Hashable {
+    let id: String
+    let text: String
+    let revealedAt: Date
     let experience: Experience
 }
 
@@ -245,17 +229,25 @@ nonisolated struct NecklacePresentation: Decodable, Hashable {
     let theme: LumiPresentationTheme
     let animation: LumiPresentationAnimation
     let sound: LumiPresentationSound?
+    let revealPreset: LumiMessageRevealPreset
 
     private enum CodingKeys: String, CodingKey {
         case theme
         case animation
         case sound
+        case revealPreset
     }
 
-    init(theme: LumiPresentationTheme, animation: LumiPresentationAnimation, sound: LumiPresentationSound?) {
+    init(
+        theme: LumiPresentationTheme,
+        animation: LumiPresentationAnimation,
+        sound: LumiPresentationSound?,
+        revealPreset: LumiMessageRevealPreset = .wordRise
+    ) {
         self.theme = theme
         self.animation = animation
         self.sound = sound
+        self.revealPreset = revealPreset
     }
 
     init(from decoder: Decoder) throws {
@@ -263,10 +255,12 @@ nonisolated struct NecklacePresentation: Decodable, Hashable {
         let themeValue = try container.decodeIfPresent(String.self, forKey: .theme)
         let animationValue = try container.decodeIfPresent(String.self, forKey: .animation)
         let soundValue = try container.decodeIfPresent(String.self, forKey: .sound)
+        let revealPresetValue = try container.decodeIfPresent(String.self, forKey: .revealPreset)
 
         theme = LumiPresentationTheme(rawValue: themeValue ?? "") ?? .heart
         animation = LumiPresentationAnimation(rawValue: animationValue ?? "") ?? .breathe
         sound = soundValue.flatMap(LumiPresentationSound.init(rawValue:))
+        revealPreset = LumiMessageRevealPreset(rawValue: revealPresetValue ?? "") ?? .wordRise
     }
 }
 
@@ -280,6 +274,11 @@ nonisolated enum LumiPresentationAnimation: String, Decodable, Hashable {
     case breathe
     case shimmer
     case still
+}
+
+nonisolated enum LumiMessageRevealPreset: String, Decodable, Hashable {
+    case wordRise
+    case crossfade
 }
 
 nonisolated enum LumiPresentationSound: String, Decodable, Hashable {

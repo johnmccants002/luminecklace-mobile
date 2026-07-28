@@ -57,6 +57,9 @@ final class SenderService {
             mapLumi(from: $0, fallbackThemeKey: themeKey)
         }
         let availableLumiCount = dict["availableLumiCount"] as? Int ?? max(queuedLumis.count, nextLumi == nil ? 0 : 1)
+        let recentlyRevealed = JSONLookup.array(dict, keys: ["recentlyRevealed"])?.compactMap {
+            mapRevealedLumi(from: $0, fallbackThemeKey: themeKey)
+        } ?? []
         let reserve = JSONLookup.dictionary(dict, keys: ["reserve"]).flatMap(mapReserveSummary(from:))
         return NecklaceTag(
             id: id,
@@ -70,6 +73,7 @@ final class SenderService {
             availableLumiCount: availableLumiCount,
             nextLumi: nextLumi,
             queuedLumis: queuedLumis.isEmpty ? nextLumi.map { [$0] } ?? [] : queuedLumis,
+            recentlyRevealed: recentlyRevealed,
             reserve: reserve
         )
     }
@@ -113,19 +117,58 @@ final class SenderService {
         )
     }
 
+    private func mapRevealedLumi(
+        from dict: [String: Any],
+        fallbackThemeKey: String
+    ) -> RevealedLumi? {
+        guard let id = JSONLookup.string(dict, keys: ["id"]),
+              let text = JSONLookup.string(dict, keys: ["text"]),
+              let revealedAtValue = JSONLookup.string(dict, keys: ["revealedAt"]),
+              let revealedAt = parseISO8601Date(revealedAtValue) else {
+            return nil
+        }
+
+        let presentation = JSONLookup.dictionary(dict, keys: ["presentation"]) ?? [:]
+        return RevealedLumi(
+            id: id,
+            text: text,
+            revealedAt: revealedAt,
+            experience: Experience(
+                themeKey: JSONLookup.string(presentation, keys: ["theme"]) ?? fallbackThemeKey,
+                animationKey: JSONLookup.string(presentation, keys: ["animation"]) ?? "breathe",
+                soundKey: JSONLookup.string(presentation, keys: ["sound"]) ?? "soft"
+            )
+        )
+    }
+
+    private func parseISO8601Date(_ value: String) -> Date? {
+        let fractionalFormatter = ISO8601DateFormatter()
+        fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = fractionalFormatter.date(from: value) {
+            return date
+        }
+
+        return ISO8601DateFormatter().date(from: value)
+    }
+
     func mapReserveSummary(from dict: [String: Any]) -> LumiReserveSummary? {
+        let availableCountKeys = ["availableLumiCount", "availableCount", "remainingCount"]
+        let hasExplicitAvailableCount = availableCountKeys.contains { dict[$0] != nil }
+        let explicitAvailableCount = JSONLookup.int(dict, keys: availableCountKeys)
+
         guard let enabled = JSONLookup.bool(dict, keys: ["enabled"]),
               let approvedCount = JSONLookup.int(dict, keys: ["approvedCount"]),
               let totalCount = JSONLookup.int(dict, keys: ["totalCount"]),
               approvedCount >= 0,
               totalCount >= 0,
               approvedCount <= totalCount,
+              !hasExplicitAvailableCount || explicitAvailableCount.map({ $0 >= 0 }) == true,
               let categoryPayloads = JSONLookup.array(dict, keys: ["categories"]) else {
             return nil
         }
 
-        let categories = categoryPayloads.compactMap { category -> LumiReserveCategorySummary? in
-            guard let key = JSONLookup.string(category, keys: ["key"]),
+        let validCategoryCount = categoryPayloads.compactMap { category -> Bool? in
+            guard JSONLookup.string(category, keys: ["key"]) != nil,
                   let categoryApprovedCount = JSONLookup.int(category, keys: ["approvedCount"]),
                   let categoryTotalCount = JSONLookup.int(category, keys: ["totalCount"]),
                   categoryApprovedCount >= 0,
@@ -133,23 +176,16 @@ final class SenderService {
                   categoryApprovedCount <= categoryTotalCount else {
                 return nil
             }
-
-            return LumiReserveCategorySummary(
-                key: key,
-                approvedCount: categoryApprovedCount,
-                totalCount: categoryTotalCount
-            )
+            return true
         }
 
-        guard categories.count == categoryPayloads.count else {
+        guard validCategoryCount.count == categoryPayloads.count else {
             return nil
         }
 
         return LumiReserveSummary(
             enabled: enabled,
-            approvedCount: approvedCount,
-            totalCount: totalCount,
-            categories: categories
+            lumiCount: explicitAvailableCount ?? (approvedCount == 0 ? 0 : nil)
         )
     }
 }

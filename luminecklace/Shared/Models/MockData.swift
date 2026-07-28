@@ -3,15 +3,7 @@ import Foundation
 enum MockData {
     static let fullReserveSummary = LumiReserveSummary(
         enabled: true,
-        approvedCount: 18,
-        totalCount: 18,
-        categories: [
-            LumiReserveCategorySummary(key: "affection", approvedCount: 4, totalCount: 4),
-            LumiReserveCategorySummary(key: "comfort", approvedCount: 4, totalCount: 4),
-            LumiReserveCategorySummary(key: "encouragement", approvedCount: 4, totalCount: 4),
-            LumiReserveCategorySummary(key: "presence", approvedCount: 3, totalCount: 3),
-            LumiReserveCategorySummary(key: "reassurance", approvedCount: 3, totalCount: 3)
-        ]
+        lumiCount: nil
     )
 
     static let defaultPackages: [Package] = [

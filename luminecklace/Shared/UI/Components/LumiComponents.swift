@@ -67,16 +67,6 @@ struct MessageCardView: View {
                 .font(LumiTheme.Typography.headline(28))
                 .foregroundStyle(LumiTheme.Colors.ink)
                 .frame(maxWidth: .infinity, alignment: .leading)
-
-            if let message {
-                Text(message.packageId.capitalized)
-                    .font(LumiTheme.Typography.body(13))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(LumiTheme.Colors.roseSoft)
-                    .clipShape(Capsule())
-                    .foregroundStyle(LumiTheme.Colors.rose)
-            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .glassCard()

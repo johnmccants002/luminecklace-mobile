@@ -51,6 +51,13 @@ struct MainTabView: View {
             }
 
             NavigationStack {
+                ExploreView(appState: appState)
+            }
+            .tabItem {
+                Label("Explore", systemImage: "heart.text.square.fill")
+            }
+
+            NavigationStack {
                 SettingsView(viewModel: SettingsViewModel(appState: appState))
             }
             .tabItem {

@@ -1,6 +1,5 @@
 import Foundation
 import Combine
-import UIKit
 
 @MainActor
 final class RecipientClipViewModel: ObservableObject {
@@ -21,12 +20,17 @@ final class RecipientClipViewModel: ObservableObject {
 
         if let url = invocationURLFromEnvironment() ?? invocationURLFromLaunchArguments() {
             handle(url: url)
+        } else {
+            state = .error(.invalidInvocation)
         }
     }
 
     func handle(url: URL) {
         guard let token = RecipientInvocationParser.token(from: url) else {
-            state = .awaitingInvocation
+            resolutionTask?.cancel()
+            confirmationTask?.cancel()
+            currentToken = nil
+            state = .error(.invalidInvocation)
             return
         }
 
@@ -35,33 +39,14 @@ final class RecipientClipViewModel: ObservableObject {
 
     func retry() {
         guard let currentToken else {
-            state = .awaitingInvocation
+            state = .error(.invalidInvocation)
             return
         }
         resolve(token: currentToken, force: true)
     }
 
-    func completeHold(for lumi: ResolvedLumi) {
-        guard case let .waiting(current) = state,
-              current.revealSessionId == lumi.revealSessionId else {
-            return
-        }
-
-        state = .revealing(lumi)
-        UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.7)
-
-        Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 420_000_000)
-            guard let self, !Task.isCancelled else { return }
-            self.state = .revealed(lumi, confirmationState: .pending)
-            self.confirmRevealIfNeeded(lumi)
-        }
-    }
-
     private func resolve(token: String, force: Bool = false) {
-        if !force,
-           currentToken == token,
-           shouldIgnoreDuplicateInvocation {
+        if !force, currentToken == token {
             return
         }
 
@@ -80,7 +65,8 @@ final class RecipientClipViewModel: ObservableObject {
                 guard !Task.isCancelled else { return }
                 switch response {
                 case let .ready(lumi):
-                    state = .waiting(lumi)
+                    state = .revealed(lumi, confirmationState: .pending)
+                    confirmRevealIfNeeded(lumi)
                 case .empty:
                     state = .empty
                 case .unavailable:
@@ -93,15 +79,6 @@ final class RecipientClipViewModel: ObservableObject {
                 guard !Task.isCancelled else { return }
                 state = .error(.network)
             }
-        }
-    }
-
-    private var shouldIgnoreDuplicateInvocation: Bool {
-        switch state {
-        case .resolving, .waiting, .revealing:
-            return true
-        case .awaitingInvocation, .revealed, .empty, .unavailable, .error:
-            return false
         }
     }
 

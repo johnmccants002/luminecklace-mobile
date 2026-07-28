@@ -34,38 +34,8 @@ struct HomeView: View {
         viewModel.queuedMessages
     }
 
-    private var recentItems: [HomeRecentItem] {
-        if let message = viewModel.message {
-            return [
-                HomeRecentItem(
-                    icon: "eye.fill",
-                    tint: Color(red: 0.92, green: 0.38, blue: 0.50),
-                    title: message.text,
-                    subtitle: "Ready for her next tap"
-                ),
-                HomeRecentItem(
-                    icon: "heart.fill",
-                    tint: Color(red: 0.66, green: 0.50, blue: 0.82),
-                    title: "Draft locked in",
-                    subtitle: "Open the queue editor to reorder messages"
-                )
-            ]
-        }
-
-        return [
-            HomeRecentItem(
-                icon: "sparkles",
-                tint: Color(red: 0.92, green: 0.58, blue: 0.42),
-                title: "Nothing revealed yet",
-                subtitle: "Your first Lumi will appear here after setup"
-            ),
-            HomeRecentItem(
-                icon: "heart.fill",
-                tint: Color(red: 0.66, green: 0.50, blue: 0.82),
-                title: "First message not published",
-                subtitle: "Tap Add a Lumi to continue"
-            )
-        ]
+    private var recentItems: [RevealedLumi] {
+        viewModel.recentlyRevealed
     }
 
     var body: some View {
@@ -99,8 +69,18 @@ struct HomeView: View {
                         .opacity(showSections ? 1 : 0)
                         .offset(y: showSections ? 0 : 12)
 
-                    LumiReserveCard(
-                        state: LumiReserveViewState(summary: viewModel.reserve)
+                    sectionHeader(
+                        title: "Lumi Reserve",
+                        icon: "sparkles",
+                        actionTitle: "Edit reserve",
+                        action: { viewModel.openReserveEditor() }
+                    )
+                    .opacity(showSections ? 1 : 0)
+                    .offset(y: showSections ? 0 : 12)
+
+                    LumiReserveQueueCard(
+                        state: LumiReserveViewState(summary: viewModel.reserve),
+                        onOpen: { viewModel.openReserveEditor() }
                     )
                     .opacity(showSections ? 1 : 0)
                     .offset(y: showSections ? 0 : 12)
@@ -128,14 +108,8 @@ struct HomeView: View {
         .preferredColorScheme(.light)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .navigationBar)
-        .sheet(isPresented: $showPreviewSheet) {
-            HomePreviewSheet(
-                title: viewModel.necklaceName,
-                subtitle: viewModel.message?.text ?? "No custom Lumi has been published yet.",
-                actionTitle: "Close"
-            )
-            .presentationDetents([.medium])
-            .presentationDragIndicator(.visible)
+        .fullScreenCover(isPresented: $showPreviewSheet) {
+            HomeAppClipPreview(revealState: viewModel.previewRevealState)
         }
         .onAppear {
             withAnimation(.easeOut(duration: 0.5)) {
@@ -255,26 +229,28 @@ struct HomeView: View {
     }
 
     private var greetingBlock: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Good morning,")
-                .font(.system(size: 31, weight: .medium, design: .serif))
-                .foregroundStyle(Color(red: 0.16, green: 0.17, blue: 0.29))
-
-            HStack(spacing: 8) {
-                Text(viewModel.greetingName)
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            VStack(alignment: .leading, spacing: 8) {
+                Text("\(viewModel.greeting(for: context.date)),")
                     .font(.system(size: 31, weight: .medium, design: .serif))
                     .foregroundStyle(Color(red: 0.16, green: 0.17, blue: 0.29))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.72)
 
-                Text("♥")
-                    .font(.system(size: 31, weight: .medium, design: .serif))
-                    .foregroundStyle(Color(red: 0.16, green: 0.17, blue: 0.29))
+                HStack(spacing: 8) {
+                    Text(viewModel.greetingName)
+                        .font(.system(size: 31, weight: .medium, design: .serif))
+                        .foregroundStyle(Color(red: 0.16, green: 0.17, blue: 0.29))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+
+                    Text("♥")
+                        .font(.system(size: 31, weight: .medium, design: .serif))
+                        .foregroundStyle(Color(red: 0.16, green: 0.17, blue: 0.29))
+                }
+
+                Text(viewModel.heroHeadline)
+                    .font(.system(size: 18, weight: .regular, design: .rounded))
+                    .foregroundStyle(Color(red: 0.46, green: 0.49, blue: 0.58))
             }
-
-            Text(viewModel.heroHeadline)
-                .font(.system(size: 18, weight: .regular, design: .rounded))
-                .foregroundStyle(Color(red: 0.46, green: 0.49, blue: 0.58))
         }
         .padding(.top, 4)
     }
@@ -492,42 +468,74 @@ struct HomeView: View {
     }
 
     private var recentActivityCard: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(recentItems.enumerated()), id: \.offset) { index, item in
+        Group {
+            if recentItems.isEmpty {
                 HStack(spacing: 14) {
                     ZStack {
                         Circle()
-                            .fill(item.tint.opacity(0.16))
-                            .frame(width: 44, height: 44)
+                            .fill(Color(red: 0.92, green: 0.38, blue: 0.50).opacity(0.13))
+                            .frame(width: 46, height: 46)
 
-                        Image(systemName: item.icon)
-                            .font(.system(size: 17, weight: .semibold))
-                            .foregroundStyle(item.tint)
+                        Image(systemName: "eye")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(Color(red: 0.92, green: 0.38, blue: 0.50))
                     }
+                    .accessibilityHidden(true)
 
                     VStack(alignment: .leading, spacing: 5) {
-                        Text(item.title)
-                            .font(.system(size: 16, weight: .regular, design: .rounded))
+                        Text("Nothing revealed yet")
+                            .font(.system(size: 16, weight: .medium, design: .rounded))
                             .foregroundStyle(Color(red: 0.18, green: 0.19, blue: 0.31))
-                            .lineLimit(2)
 
-                        Text(item.subtitle)
+                        Text("Her revealed Lumis will appear here after she taps the necklace.")
                             .font(.system(size: 14, weight: .regular, design: .rounded))
                             .foregroundStyle(Color(red: 0.46, green: 0.49, blue: 0.58))
+                            .fixedSize(horizontal: false, vertical: true)
                     }
 
                     Spacer(minLength: 0)
-
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(Color(red: 0.56, green: 0.57, blue: 0.65))
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 16)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 18)
+                .accessibilityElement(children: .combine)
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(recentItems.enumerated()), id: \.element.id) { index, item in
+                        HStack(spacing: 14) {
+                            ZStack {
+                                Circle()
+                                    .fill(recentTint(for: index).opacity(0.14))
+                                    .frame(width: 44, height: 44)
 
-                if index < recentItems.count - 1 {
-                    Divider()
-                        .overlay(Color(red: 0.91, green: 0.88, blue: 0.87))
+                                Image(systemName: "eye.fill")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundStyle(recentTint(for: index))
+                            }
+                            .accessibilityHidden(true)
+
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text(item.text)
+                                    .font(.system(size: 16, weight: .regular, design: .rounded))
+                                    .foregroundStyle(Color(red: 0.18, green: 0.19, blue: 0.31))
+                                    .lineLimit(3)
+                                    .fixedSize(horizontal: false, vertical: true)
+
+                                Text(viewModel.revealedSubtitle(for: item.revealedAt))
+                                    .font(.system(size: 14, weight: .regular, design: .rounded))
+                                    .foregroundStyle(Color(red: 0.46, green: 0.49, blue: 0.58))
+                            }
+
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 16)
+                        .accessibilityElement(children: .combine)
+
+                        if index < recentItems.count - 1 {
+                            Divider()
+                                .overlay(Color(red: 0.91, green: 0.88, blue: 0.87))
+                        }
+                    }
                 }
             }
         }
@@ -541,6 +549,17 @@ struct HomeView: View {
                 .stroke(Color(red: 0.95, green: 0.88, blue: 0.87), lineWidth: 1)
         )
         .shadow(color: Color(red: 0.95, green: 0.86, blue: 0.84).opacity(0.20), radius: 14, y: 8)
+    }
+
+    private func recentTint(for index: Int) -> Color {
+        switch index % 3 {
+        case 0:
+            return Color(red: 0.92, green: 0.38, blue: 0.50)
+        case 1:
+            return Color(red: 0.66, green: 0.50, blue: 0.82)
+        default:
+            return Color(red: 0.92, green: 0.58, blue: 0.42)
+        }
     }
 
     private func sectionHeader(
@@ -586,53 +605,38 @@ struct HomeView: View {
     }
 }
 
-private struct HomeRecentItem {
-    let icon: String
-    let tint: Color
-    let title: String
-    let subtitle: String
-}
-
-private struct HomePreviewSheet: View {
-    let title: String
-    let subtitle: String
-    let actionTitle: String
+private struct HomeAppClipPreview: View {
+    let revealState: RecipientRevealState
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [
-                    Color(red: 1.00, green: 0.97, blue: 0.95),
-                    Color(red: 0.98, green: 0.92, blue: 0.92)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
+        ZStack(alignment: .topTrailing) {
+            RecipientRevealPresentationView(revealState: revealState)
 
-            VStack(alignment: .leading, spacing: 16) {
-                Text("Preview")
-                    .font(.system(size: 15, weight: .semibold, design: .rounded))
-                    .foregroundStyle(Color(red: 0.86, green: 0.32, blue: 0.46))
-
-                Text(title)
-                    .font(.system(size: 28, weight: .medium, design: .serif))
-                    .foregroundStyle(Color(red: 0.16, green: 0.17, blue: 0.29))
-
-                Text(subtitle)
-                    .font(.system(size: 19, weight: .regular, design: .serif))
-                    .foregroundStyle(Color(red: 0.30, green: 0.31, blue: 0.42))
-                    .lineSpacing(4)
-
-                Spacer()
-
-                Button(actionTitle) {
-                    dismiss()
-                }
-                .buttonStyle(PrimaryButtonStyle())
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 42, height: 42)
+                    .background(.black.opacity(0.24), in: Circle())
+                    .overlay(
+                        Circle()
+                            .stroke(.white.opacity(0.28), lineWidth: 1)
+                    )
+                    .contentShape(Circle())
             }
-            .padding(22)
+            .buttonStyle(.plain)
+            .accessibilityLabel("Close App Clip preview")
+            .padding(.top, 12)
+            .padding(.trailing, 18)
+        }
+        .onAppear {
+            UIAccessibility.post(
+                notification: .screenChanged,
+                argument: "App Clip preview"
+            )
         }
     }
 }
