@@ -20,3 +20,10 @@ This app refactor expects these backend interfaces:
 
 The migration in `supabase/migrations/20260415_sender_first_schema.sql` includes
 table scaffolding, RLS, and base SQL functions for the sender-first flow.
+
+## Backend handoffs
+
+- `BACKEND_QUEUE_HANDOFF.md` defines Current, Up Next, Reserve, and reveal
+  advancement behavior.
+- `BACKEND_TEXT_LAYOUT_HANDOFF.md` defines the curated composer presentation
+  input, persistence, validation, and response contract.

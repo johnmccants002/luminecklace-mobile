@@ -98,13 +98,13 @@ final class ExploreMessagesTests: XCTestCase {
         let appState = makeAppState()
         let viewModel = ExploreViewModel(appState: appState, service: service)
 
-        let succeeded = await viewModel.enqueue(Self.template())
+        let succeeded = await viewModel.enqueue(Self.template(), destination: .upNext)
 
         XCTAssertTrue(succeeded)
         XCTAssertEqual(service.addRequests.first?.necklaceId, "necklace-a")
-        XCTAssertNil(service.addRequests.first?.request.text)
+        XCTAssertEqual(service.addRequests.first?.request.destination, .upNext)
         XCTAssertEqual(appState.queueMessages.last?.text, "I believe in you.")
-        XCTAssertEqual(viewModel.confirmation, "Added as message #4")
+        XCTAssertEqual(viewModel.confirmation, "Added to Up Next as #4")
     }
 
     func testDoubleTapPreventionAllowsOnlyOneRequest() async {
@@ -114,9 +114,9 @@ final class ExploreMessagesTests: XCTestCase {
         let viewModel = makeViewModel(service: service)
         let template = Self.template()
 
-        async let first = viewModel.enqueue(template)
+        async let first = viewModel.enqueue(template, destination: .upNext)
         try? await Task.sleep(for: .milliseconds(10))
-        let second = await viewModel.enqueue(template)
+        let second = await viewModel.enqueue(template, destination: .reserve)
         let firstResult = await first
 
         XCTAssertTrue(firstResult)
@@ -124,32 +124,18 @@ final class ExploreMessagesTests: XCTestCase {
         XCTAssertEqual(service.addRequests.count, 1)
     }
 
-    func testPersonalizedEnqueueTrimsAndRetainsTemplateProvenance() async {
+    func testReserveEnqueueUsesExplicitDestination() async {
         let service = MockLibraryService()
         service.addResult = .success(Self.senderLumi(text: "Just for you.", position: 1))
         let viewModel = makeViewModel(service: service)
         let template = Self.template()
 
-        let succeeded = await viewModel.enqueue(template, personalizedText: "  Just for you.  ")
+        let succeeded = await viewModel.enqueue(template, destination: .reserve)
 
         XCTAssertTrue(succeeded)
         XCTAssertEqual(service.addRequests.first?.request.messageId, template.id)
-        XCTAssertEqual(service.addRequests.first?.request.text, "Just for you.")
-    }
-
-    func testPersonalizedValidationRejectsEmptyAndOverLimitWithoutNetwork() async {
-        let service = MockLibraryService()
-        let viewModel = makeViewModel(service: service)
-        let template = Self.template()
-
-        let emptyResult = await viewModel.enqueue(template, personalizedText: " \n ")
-        let overLimitResult = await viewModel.enqueue(
-            template,
-            personalizedText: String(repeating: "a", count: 501)
-        )
-        XCTAssertFalse(emptyResult)
-        XCTAssertFalse(overLimitResult)
-        XCTAssertTrue(service.addRequests.isEmpty)
+        XCTAssertEqual(service.addRequests.first?.request.destination, .reserve)
+        XCTAssertEqual(viewModel.confirmation, "Added to Reserve as #1")
     }
 
     func testMultipleNecklaceTargetingReloadsUsageAndResetsConfirmation() async {
@@ -172,9 +158,10 @@ final class ExploreMessagesTests: XCTestCase {
         let viewModel = makeViewModel(service: service)
 
         await viewModel.reload()
-        _ = await viewModel.enqueue(template)
+        _ = await viewModel.enqueue(template, destination: .reserve)
 
         XCTAssertEqual(viewModel.messages.first?.isQueued, true)
+        XCTAssertEqual(viewModel.messages.first?.queuedSection, .reserve)
     }
 
     func testStaleSearchResponseCannotReplaceNewerResults() async {
@@ -230,6 +217,7 @@ final class ExploreMessagesTests: XCTestCase {
             category: MessageTemplateCategory(key: "encouragement", name: "Encouragement"),
             presentation: LibraryMessagePresentation(theme: "heart", animation: "breathe", sound: "soft"),
             isQueued: isQueued,
+            queuedSection: nil,
             wasRecentlyRevealed: false,
             lastUsedAt: nil
         )
@@ -251,12 +239,17 @@ final class ExploreMessagesTests: XCTestCase {
     private static func senderLumi(
         text: String = "I believe in you.",
         position: Int
-    ) -> SenderLumi {
-        SenderLumi(
-            id: "00000000-0000-4000-8000-000000000099",
-            text: text,
-            queuePosition: position,
-            presentation: LibraryMessagePresentation(theme: "heart", animation: "breathe", sound: "soft")
+    ) -> QueueCreationResult {
+        QueueCreationResult(
+            message: Message(
+                id: "00000000-0000-4000-8000-000000000099",
+                text: text,
+                packageId: "library",
+                timestamp: Date(),
+                experience: Experience(themeKey: "heart", animationKey: "breathe", soundKey: "soft")
+            ),
+            snapshot: nil,
+            queuePosition: position
         )
     }
 }
@@ -275,7 +268,7 @@ private final class MockLibraryService: MessageLibraryServing {
     }
 
     var libraryResults: [Result<MessageLibraryResponse, Error>] = []
-    var addResult: Result<SenderLumi, Error> = .failure(TestError.unavailable)
+    var addResult: Result<QueueCreationResult, Error> = .failure(TestError.unavailable)
     var addDelay: Duration?
     private(set) var libraryQueries: [MessageLibraryQuery] = []
     private(set) var addRequests: [AddCall] = []
@@ -290,7 +283,7 @@ private final class MockLibraryService: MessageLibraryServing {
     func addMessage(
         necklaceId: String,
         request: AddLibraryMessageRequest
-    ) async throws -> SenderLumi {
+    ) async throws -> QueueCreationResult {
         addRequests.append(AddCall(necklaceId: necklaceId, request: request))
         if let addDelay {
             try? await Task.sleep(for: addDelay)
@@ -320,7 +313,7 @@ private final class SearchRaceLibraryService: MessageLibraryServing {
     func addMessage(
         necklaceId: String,
         request: AddLibraryMessageRequest
-    ) async throws -> SenderLumi {
+    ) async throws -> QueueCreationResult {
         throw TestError.unavailable
     }
 }

@@ -5,7 +5,7 @@ protocol MessageLibraryServing {
     func addMessage(
         necklaceId: String,
         request: AddLibraryMessageRequest
-    ) async throws -> SenderLumi
+    ) async throws -> QueueCreationResult
 }
 
 final class MessageLibraryService: MessageLibraryServing {
@@ -27,13 +27,32 @@ final class MessageLibraryService: MessageLibraryServing {
     func addMessage(
         necklaceId: String,
         request: AddLibraryMessageRequest
-    ) async throws -> SenderLumi {
-        let response: SenderLumiResponse = try await client.request(
+    ) async throws -> QueueCreationResult {
+        let payload = try await client.requestObject(
             method: .post,
             path: "/api/sender/necklaces/\(necklaceId)/lumis/from-library",
-            body: request,
+            body: [
+                "messageId": request.messageId,
+                "destination": request.destination.rawValue
+            ],
             authorized: true
         )
-        return response.lumi
+        guard let lumiPayload = JSONLookup.dictionary(payload, keys: ["lumi"]),
+              let message = SenderService().mapLumi(
+                from: lumiPayload,
+                fallbackThemeKey: "heart"
+              ) else {
+            throw APIError.invalidPayload
+        }
+
+        return QueueCreationResult(
+            message: message,
+            snapshot: SenderService().mapQueueSnapshot(
+                from: payload,
+                necklaceId: necklaceId,
+                fallbackThemeKey: "heart"
+            ),
+            queuePosition: JSONLookup.int(lumiPayload, keys: ["queuePosition", "position"])
+        )
     }
 }

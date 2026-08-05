@@ -1,6 +1,54 @@
 import Foundation
 
-final class SenderService {
+enum QueueMutation {
+    case reorder(section: QueueSection, orderedMessageIDs: [String])
+    case move(messageID: String, destination: QueueSection, placement: QueuePlacement)
+    case remove(messageID: String)
+
+    var payload: [String: Any] {
+        switch self {
+        case let .reorder(section, orderedMessageIDs):
+            return [
+                "type": "reorder",
+                "section": section.rawValue,
+                "orderedMessageIds": orderedMessageIDs
+            ]
+        case let .move(messageID, destination, placement):
+            return [
+                "type": "move",
+                "messageId": messageID,
+                "destination": destination.rawValue,
+                "placement": placement.rawValue
+            ]
+        case let .remove(messageID):
+            return [
+                "type": "remove",
+                "messageId": messageID
+            ]
+        }
+    }
+}
+
+struct QueueCreationResult {
+    let message: Message
+    let snapshot: QueueSnapshot?
+    let queuePosition: Int?
+}
+
+struct SharedLinkCreationResult {
+    let message: Message
+    let idempotentReplay: Bool
+}
+
+enum SenderQueueError: LocalizedError {
+    case conflict(QueueSnapshot?)
+
+    var errorDescription: String? {
+        "This queue changed somewhere else. The latest order has been loaded."
+    }
+}
+
+struct SenderService {
     private let client: APIClient
 
     init(client: APIClient = .shared) {
@@ -26,11 +74,20 @@ final class SenderService {
         return []
     }
 
-    func addLumi(necklaceId: String, text: String) async throws -> Message {
+    func addLumi(
+        necklaceId: String,
+        text: String,
+        destination: QueueSection,
+        experience: Experience
+    ) async throws -> QueueCreationResult {
         let payload = try await client.requestObject(
             method: .post,
             path: "/api/sender/necklaces/\(necklaceId)/lumis",
-            body: ["text": text],
+            body: [
+                "text": text,
+                "destination": destination.rawValue,
+                "presentation": presentationPayload(for: experience)
+            ],
             authorized: true
         )
 
@@ -38,7 +95,109 @@ final class SenderService {
               let message = mapLumi(from: lumi, fallbackThemeKey: "heart") else {
             throw APIError.invalidPayload
         }
-        return message
+        return QueueCreationResult(
+            message: message,
+            snapshot: mapQueueSnapshot(from: payload, necklaceId: necklaceId, fallbackThemeKey: "heart"),
+            queuePosition: JSONLookup.int(lumi, keys: ["queuePosition", "position"])
+        )
+    }
+
+    func addSharedLinkLumi(
+        necklaceId: String,
+        clientRequestId: UUID,
+        url: URL,
+        text: String?,
+        destination: QueueSection
+    ) async throws -> SharedLinkCreationResult {
+        var body: [String: Any] = [
+            "clientRequestId": clientRequestId.uuidString,
+            "url": url.absoluteString,
+            "destination": destination.rawValue
+        ]
+        if let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            body["text"] = text
+        }
+
+        let payload = try await client.requestObject(
+            method: .post,
+            path: "/api/sender/necklaces/\(necklaceId)/lumis/from-share",
+            body: body,
+            authorized: true
+        )
+        guard let lumi = JSONLookup.dictionary(payload, keys: ["lumi"]),
+              let message = mapLumi(from: lumi, fallbackThemeKey: "heart") else {
+            throw APIError.invalidPayload
+        }
+        return SharedLinkCreationResult(
+            message: message,
+            idempotentReplay: JSONLookup.bool(payload, keys: ["idempotentReplay"]) ?? false
+        )
+    }
+
+    func editLumi(
+        necklaceId: String,
+        messageId: String,
+        text: String,
+        experience: Experience
+    ) async throws -> QueueCreationResult {
+        let payload = try await client.requestObject(
+            method: .patch,
+            path: "/api/sender/necklaces/\(necklaceId)/lumis/\(messageId)",
+            body: [
+                "text": text,
+                "presentation": presentationPayload(for: experience)
+            ],
+            authorized: true
+        )
+
+        guard let lumi = JSONLookup.dictionary(payload, keys: ["lumi"]),
+              let message = mapLumi(from: lumi, fallbackThemeKey: experience.themeKey) else {
+            throw APIError.invalidPayload
+        }
+        return QueueCreationResult(
+            message: message,
+            snapshot: mapQueueSnapshot(
+                from: payload,
+                necklaceId: necklaceId,
+                fallbackThemeKey: experience.themeKey
+            ),
+            queuePosition: JSONLookup.int(lumi, keys: ["queuePosition", "position"])
+        )
+    }
+
+    func mutateQueue(
+        necklaceId: String,
+        expectedRevision: Int,
+        operation: QueueMutation
+    ) async throws -> QueueSnapshot {
+        do {
+            let payload = try await client.requestObject(
+                method: .post,
+                path: "/api/sender/necklaces/\(necklaceId)/queue/mutations",
+                body: [
+                    "expectedRevision": expectedRevision,
+                    "idempotencyKey": UUID().uuidString,
+                    "operation": operation.payload
+                ],
+                authorized: true
+            )
+            guard let snapshot = mapQueueSnapshot(
+                from: payload,
+                necklaceId: necklaceId,
+                fallbackThemeKey: "heart"
+            ) else {
+                throw APIError.invalidPayload
+            }
+            return snapshot
+        } catch let APIError.conflict(payload) {
+            throw SenderQueueError.conflict(
+                mapQueueSnapshot(
+                    from: payload,
+                    necklaceId: necklaceId,
+                    fallbackThemeKey: "heart"
+                )
+            )
+        }
     }
 
     func mapNecklace(from dict: [String: Any]) -> NecklaceTag? {
@@ -50,13 +209,23 @@ final class SenderService {
         let rarity = JSONLookup.string(dict, keys: ["rarity"])
         let includedPackage = JSONLookup.string(dict, keys: ["includedPackage", "packageId", "packageName"]) ?? "Love"
         let lifecycleStatus = JSONLookup.string(dict, keys: ["lifecycleStatus"]) ?? "active"
-        let queuedLumis = JSONLookup.array(dict, keys: ["queue", "messages", "lumis"])?.compactMap {
+        let explicitSnapshot = mapQueueSnapshot(
+            from: dict,
+            necklaceId: id,
+            fallbackThemeKey: themeKey
+        )
+        let legacyQueue = JSONLookup.array(dict, keys: ["queue", "messages", "lumis"])?.compactMap {
             mapLumi(from: $0, fallbackThemeKey: themeKey)
         } ?? []
-        let nextLumi = queuedLumis.first ?? JSONLookup.dictionary(dict, keys: ["nextLumi"]).flatMap {
+        let legacyCurrent = JSONLookup.dictionary(dict, keys: ["nextLumi"]).flatMap {
             mapLumi(from: $0, fallbackThemeKey: themeKey)
         }
-        let availableLumiCount = dict["availableLumiCount"] as? Int ?? max(queuedLumis.count, nextLumi == nil ? 0 : 1)
+        let current = explicitSnapshot?.current ?? legacyCurrent ?? legacyQueue.first
+        let queuedLumis = explicitSnapshot?.upNext
+            ?? (current == legacyQueue.first ? Array(legacyQueue.dropFirst()) : legacyQueue)
+        let availableLumiCount = explicitSnapshot?.continuousSequence.count
+            ?? (dict["availableLumiCount"] as? Int)
+            ?? ((current == nil ? 0 : 1) + queuedLumis.count)
         let recentlyRevealed = JSONLookup.array(dict, keys: ["recentlyRevealed"])?.compactMap {
             mapRevealedLumi(from: $0, fallbackThemeKey: themeKey)
         } ?? []
@@ -71,10 +240,18 @@ final class SenderService {
             includedPackage: includedPackage,
             lifecycleStatus: lifecycleStatus,
             availableLumiCount: availableLumiCount,
-            nextLumi: nextLumi,
-            queuedLumis: queuedLumis.isEmpty ? nextLumi.map { [$0] } ?? [] : queuedLumis,
+            nextLumi: current,
+            queuedLumis: queuedLumis,
             recentlyRevealed: recentlyRevealed,
-            reserve: reserve
+            reserve: reserve,
+            queueSnapshot: explicitSnapshot
+                ?? (try? QueueSnapshot(
+                    necklaceId: id,
+                    revision: 0,
+                    current: current,
+                    upNext: queuedLumis,
+                    reserve: []
+                ))
         )
     }
 
@@ -90,7 +267,50 @@ final class SenderService {
         }
     }
 
-    private func mapLumi(
+    func mapQueueSnapshot(
+        from payload: [String: Any],
+        necklaceId: String,
+        fallbackThemeKey: String
+    ) -> QueueSnapshot? {
+        let roots = JSONLookup.rootCandidates(from: payload)
+        let queue = roots.lazy.compactMap {
+            JSONLookup.dictionary($0, keys: ["queue", "queueSnapshot", "snapshot"])
+        }.first
+
+        guard let queue,
+              let revision = JSONLookup.int(queue, keys: ["revision"]),
+              let upNextPayload = JSONLookup.array(queue, keys: ["upNext"]),
+              let reservePayload = JSONLookup.array(queue, keys: ["reserve"]) else {
+            return nil
+        }
+
+        let currentPayload = queue["current"] as? [String: Any]
+        let current = currentPayload.flatMap {
+            mapLumi(from: $0, fallbackThemeKey: fallbackThemeKey)
+        }
+        let upNext = upNextPayload.compactMap {
+            mapLumi(from: $0, fallbackThemeKey: fallbackThemeKey)
+        }
+        let reserve = reservePayload.compactMap {
+            mapLumi(from: $0, fallbackThemeKey: fallbackThemeKey)
+        }
+
+        guard upNext.count == upNextPayload.count,
+              reserve.count == reservePayload.count,
+              currentPayload == nil || current != nil else {
+            return nil
+        }
+
+        return try? QueueSnapshot(
+            necklaceId: necklaceId,
+            revision: revision,
+            current: current,
+            upNext: upNext,
+            reserve: reserve
+        )
+    }
+
+    func mapLumi(
         from dict: [String: Any],
         fallbackThemeKey: String
     ) -> Message? {
@@ -103,6 +323,21 @@ final class SenderService {
         let themeKey = JSONLookup.string(presentation, keys: ["theme"]) ?? fallbackThemeKey
         let animationKey = JSONLookup.string(presentation, keys: ["animation"]) ?? "breathe"
         let soundKey = JSONLookup.string(presentation, keys: ["sound"]) ?? "soft"
+        let backgroundKey = LumiBackgroundKey(
+            rawValue: JSONLookup.string(presentation, keys: ["background"]) ?? themeKey
+        ) ?? .heart
+        let fontKey = LumiFontKey(
+            rawValue: JSONLookup.string(presentation, keys: ["font"]) ?? ""
+        ) ?? .serif
+        let textSize = LumiTextSizeKey(
+            rawValue: JSONLookup.string(presentation, keys: ["textSize"]) ?? ""
+        ) ?? .medium
+        let textAlignment = LumiTextAlignmentKey(
+            rawValue: JSONLookup.string(presentation, keys: ["textAlignment"]) ?? ""
+        ) ?? .center
+        let textPosition = LumiTextPositionKey(
+            rawValue: JSONLookup.string(presentation, keys: ["textPosition"]) ?? ""
+        ) ?? .center
 
         return Message(
             id: id,
@@ -112,8 +347,14 @@ final class SenderService {
             experience: Experience(
                 themeKey: themeKey,
                 animationKey: animationKey,
-                soundKey: soundKey
-            )
+                soundKey: soundKey,
+                backgroundKey: backgroundKey,
+                fontKey: fontKey,
+                textSize: textSize,
+                textAlignment: textAlignment,
+                textPosition: textPosition
+            ),
+            attachment: mapAttachment(from: dict)
         )
     }
 
@@ -136,9 +377,45 @@ final class SenderService {
             experience: Experience(
                 themeKey: JSONLookup.string(presentation, keys: ["theme"]) ?? fallbackThemeKey,
                 animationKey: JSONLookup.string(presentation, keys: ["animation"]) ?? "breathe",
-                soundKey: JSONLookup.string(presentation, keys: ["sound"]) ?? "soft"
-            )
+                soundKey: JSONLookup.string(presentation, keys: ["sound"]) ?? "soft",
+                backgroundKey: LumiBackgroundKey(
+                    rawValue: JSONLookup.string(presentation, keys: ["background", "theme"])
+                        ?? fallbackThemeKey
+                ) ?? .heart,
+                fontKey: LumiFontKey(
+                    rawValue: JSONLookup.string(presentation, keys: ["font"]) ?? ""
+                ) ?? .serif,
+                textSize: LumiTextSizeKey(
+                    rawValue: JSONLookup.string(presentation, keys: ["textSize"]) ?? ""
+                ) ?? .medium,
+                textAlignment: LumiTextAlignmentKey(
+                    rawValue: JSONLookup.string(presentation, keys: ["textAlignment"]) ?? ""
+                ) ?? .center,
+                textPosition: LumiTextPositionKey(
+                    rawValue: JSONLookup.string(presentation, keys: ["textPosition"]) ?? ""
+                ) ?? .center
+            ),
+            attachment: mapAttachment(from: dict)
         )
+    }
+
+    private func mapAttachment(from dict: [String: Any]) -> LumiLinkAttachment? {
+        guard let payload = JSONLookup.dictionary(dict, keys: ["attachment"]),
+              JSONSerialization.isValidJSONObject(payload),
+              let data = try? JSONSerialization.data(withJSONObject: payload) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(LumiLinkAttachment.self, from: data)
+    }
+
+    func presentationPayload(for experience: Experience) -> [String: Any] {
+        [
+            "background": experience.backgroundKey.rawValue,
+            "font": experience.fontKey.rawValue,
+            "textSize": experience.textSize.rawValue,
+            "textAlignment": experience.textAlignment.rawValue,
+            "textPosition": experience.textPosition.rawValue
+        ]
     }
 
     private func parseISO8601Date(_ value: String) -> Date? {

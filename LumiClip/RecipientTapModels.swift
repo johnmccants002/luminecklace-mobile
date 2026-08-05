@@ -15,6 +15,7 @@ nonisolated enum ResolveTapResponse: Decodable, Equatable {
         case necklace
         case lumi
         case presentation
+        case attachment
     }
 
     init(from decoder: Decoder) throws {
@@ -27,6 +28,7 @@ nonisolated enum ResolveTapResponse: Decodable, Equatable {
             let necklace = try container.decode(ResolvedNecklace.self, forKey: .necklace)
             let lumi = try container.decode(ResolvedLumiPayload.self, forKey: .lumi)
             let presentation = try container.decode(NecklacePresentation.self, forKey: .presentation)
+            let attachment = try? container.decode(LumiLinkAttachment.self, forKey: .attachment)
 
             guard !revealSessionId.isEmpty,
                   !necklace.displayName.isEmpty,
@@ -46,7 +48,8 @@ nonisolated enum ResolveTapResponse: Decodable, Equatable {
                     necklaceDisplayName: necklace.displayName,
                     lumiId: lumi.id,
                     text: lumi.text,
-                    presentation: presentation
+                    presentation: presentation,
+                    attachment: attachment
                 )
             )
         case "empty":
@@ -71,6 +74,23 @@ nonisolated struct ResolvedLumi: Identifiable, Hashable {
     let lumiId: String
     let text: String
     let presentation: NecklacePresentation
+    let attachment: LumiLinkAttachment?
+
+    init(
+        revealSessionId: String,
+        necklaceDisplayName: String,
+        lumiId: String,
+        text: String,
+        presentation: NecklacePresentation,
+        attachment: LumiLinkAttachment? = nil
+    ) {
+        self.revealSessionId = revealSessionId
+        self.necklaceDisplayName = necklaceDisplayName
+        self.lumiId = lumiId
+        self.text = text
+        self.presentation = presentation
+        self.attachment = attachment
+    }
 }
 
 nonisolated private struct ResolvedNecklace: Decodable {
@@ -87,24 +107,46 @@ nonisolated struct NecklacePresentation: Decodable, Hashable {
     let animation: LumiPresentationAnimation
     let sound: LumiPresentationSound?
     let revealPreset: LumiMessageRevealPreset
+    let background: LumiBackgroundKey
+    let font: LumiFontKey
+    let textSize: LumiTextSizeKey
+    let textAlignment: LumiTextAlignmentKey
+    let textPosition: LumiTextPositionKey
 
     private enum CodingKeys: String, CodingKey {
         case theme
         case animation
         case sound
         case revealPreset
+        case background
+        case font
+        case textSize
+        case textAlignment
+        case textPosition
     }
 
     init(
         theme: LumiPresentationTheme,
         animation: LumiPresentationAnimation,
         sound: LumiPresentationSound?,
-        revealPreset: LumiMessageRevealPreset = .wordRise
+        revealPreset: LumiMessageRevealPreset = .wordRise,
+        background: LumiBackgroundKey? = nil,
+        font: LumiFontKey = .serif,
+        textSize: LumiTextSizeKey = .medium,
+        textAlignment: LumiTextAlignmentKey = .center,
+        textPosition: LumiTextPositionKey = .center
     ) {
         self.theme = theme
         self.animation = animation
         self.sound = sound
         self.revealPreset = revealPreset
+        self.background = background
+            ?? LumiBackgroundKey(rawValue: theme.rawValue)
+            ?? .heart
+        self.font = font
+        self.textSize = textSize
+        self.textAlignment = textAlignment
+        self.textPosition = textPosition
     }
 
     init(from decoder: Decoder) throws {
@@ -113,11 +155,21 @@ nonisolated struct NecklacePresentation: Decodable, Hashable {
         let animationValue = try container.decodeIfPresent(String.self, forKey: .animation)
         let soundValue = try container.decodeIfPresent(String.self, forKey: .sound)
         let revealPresetValue = try container.decodeIfPresent(String.self, forKey: .revealPreset)
+        let backgroundValue = try container.decodeIfPresent(String.self, forKey: .background)
+        let fontValue = try container.decodeIfPresent(String.self, forKey: .font)
+        let textSizeValue = try container.decodeIfPresent(String.self, forKey: .textSize)
+        let textAlignmentValue = try container.decodeIfPresent(String.self, forKey: .textAlignment)
+        let textPositionValue = try container.decodeIfPresent(String.self, forKey: .textPosition)
 
         theme = LumiPresentationTheme(rawValue: themeValue ?? "") ?? .heart
         animation = LumiPresentationAnimation(rawValue: animationValue ?? "") ?? .breathe
         sound = soundValue.flatMap(LumiPresentationSound.init(rawValue:))
         revealPreset = LumiMessageRevealPreset(rawValue: revealPresetValue ?? "") ?? .wordRise
+        background = LumiBackgroundKey(rawValue: backgroundValue ?? theme.rawValue) ?? .heart
+        font = LumiFontKey(rawValue: fontValue ?? "") ?? .serif
+        textSize = LumiTextSizeKey(rawValue: textSizeValue ?? "") ?? .medium
+        textAlignment = LumiTextAlignmentKey(rawValue: textAlignmentValue ?? "") ?? .center
+        textPosition = LumiTextPositionKey(rawValue: textPositionValue ?? "") ?? .center
     }
 }
 

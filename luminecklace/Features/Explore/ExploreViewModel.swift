@@ -130,18 +130,12 @@ final class ExploreViewModel: ObservableObject {
     }
 
     @discardableResult
-    func enqueue(_ template: MessageTemplate, personalizedText: String? = nil) async -> Bool {
+    func enqueue(_ template: MessageTemplate, destination: QueueSection) async -> Bool {
         guard let necklace = selectedNecklace, canEnqueue else {
             actionError = "Choose an active Lumi necklace before adding a message."
             return false
         }
         guard !enqueuingMessageIDs.contains(template.id) else { return false }
-
-        let trimmed = personalizedText?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if personalizedText != nil && (trimmed?.isEmpty != false || (trimmed?.count ?? 0) > 500) {
-            actionError = "Your Lumi must be between 1 and 500 characters."
-            return false
-        }
 
         enqueuingMessageIDs.insert(template.id)
         actionError = nil
@@ -149,14 +143,22 @@ final class ExploreViewModel: ObservableObject {
         defer { enqueuingMessageIDs.remove(template.id) }
 
         do {
-            let lumi = try await service.addMessage(
+            let result = try await service.addMessage(
                 necklaceId: necklace.id,
-                request: AddLibraryMessageRequest(messageId: template.id, text: trimmed)
+                request: AddLibraryMessageRequest(
+                    messageId: template.id,
+                    destination: destination
+                )
             )
             guard selectedNecklace?.id == necklace.id else { return false }
-            appState.applyLibraryLumi(lumi, toNecklaceId: necklace.id)
-            markQueued(template.id)
-            confirmation = "Added as message #\(lumi.queuePosition)"
+            appState.applyLibraryLumi(
+                result,
+                destination: destination,
+                toNecklaceId: necklace.id
+            )
+            markQueued(template.id, section: destination)
+            let position = result.queuePosition.map { " as #\($0)" } ?? ""
+            confirmation = "Added to \(destination.displayName)\(position)"
             return true
         } catch {
             actionError = error.localizedDescription
@@ -177,7 +179,7 @@ final class ExploreViewModel: ObservableObject {
         return values.filter { seen.insert($0.id).inserted }
     }
 
-    private func markQueued(_ id: String) {
+    private func markQueued(_ id: String, section: QueueSection) {
         messages = messages.map { message in
             guard message.id == id else { return message }
             return MessageTemplate(
@@ -186,6 +188,7 @@ final class ExploreViewModel: ObservableObject {
                 category: message.category,
                 presentation: message.presentation,
                 isQueued: true,
+                queuedSection: section,
                 wasRecentlyRevealed: message.wasRecentlyRevealed,
                 lastUsedAt: message.lastUsedAt
             )

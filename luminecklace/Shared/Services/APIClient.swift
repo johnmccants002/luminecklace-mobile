@@ -17,12 +17,14 @@ enum APIConfig {
 enum HTTPMethod: String {
     case get = "GET"
     case post = "POST"
+    case patch = "PATCH"
 }
 
 enum APIError: LocalizedError {
     case invalidURL
     case invalidResponse
     case unauthorized
+    case conflict([String: Any])
     case serverError(statusCode: Int, message: String)
     case missingRequiredField(String)
     case invalidPayload
@@ -35,6 +37,8 @@ enum APIError: LocalizedError {
             return "Unexpected response from server."
         case .unauthorized:
             return "Your session expired. Please sign in again."
+        case .conflict:
+            return "This queue changed somewhere else. The latest order has been loaded."
         case let .serverError(_, message):
             return message
         case let .missingRequiredField(field):
@@ -45,21 +49,48 @@ enum APIError: LocalizedError {
     }
 }
 
-final class TokenStore {
-    private let key = "lumi_access_token"
+nonisolated final class TokenStore: @unchecked Sendable {
+    static let legacyKey = "lumi_access_token"
+
+    private let sharedStore: SharedAuthTokenStore
     private let defaults: UserDefaults
 
-    init(defaults: UserDefaults = .standard) {
+    init(
+        sharedStore: SharedAuthTokenStore = .shared,
+        defaults: UserDefaults = .standard
+    ) {
+        self.sharedStore = sharedStore
         self.defaults = defaults
     }
 
     var accessToken: String? {
-        get { defaults.string(forKey: key) }
+        get {
+            if let token = try? sharedStore.read(), !token.isEmpty {
+                return token
+            }
+
+            guard let legacyToken = defaults.string(forKey: Self.legacyKey),
+                  !legacyToken.isEmpty else {
+                return nil
+            }
+
+            do {
+                try sharedStore.write(legacyToken)
+                guard try sharedStore.read() == legacyToken else {
+                    return legacyToken
+                }
+                defaults.removeObject(forKey: Self.legacyKey)
+            } catch {
+                // Keep the legacy value until migration can be verified.
+            }
+            return legacyToken
+        }
         set {
             if let newValue, !newValue.isEmpty {
-                defaults.set(newValue, forKey: key)
+                try? sharedStore.write(newValue)
             } else {
-                defaults.removeObject(forKey: key)
+                try? sharedStore.delete()
+                defaults.removeObject(forKey: Self.legacyKey)
             }
         }
     }
@@ -113,7 +144,7 @@ final class APIClient {
         }
 
         let isSenderLumiWrite = path.hasPrefix("/api/sender/necklaces/")
-            && path.hasSuffix("/lumis")
+            && path.contains("/lumis")
         let isVerbosePath = path == "/api/auth/signin"
             || path == "/api/sender/necklaces"
             || isSenderLumiWrite
@@ -142,8 +173,13 @@ final class APIClient {
         }
 
         if isVerbosePath {
-            let bodyText = String(data: data, encoding: .utf8) ?? "<non-utf8 body>"
-            print("[API] \(path) status=\(httpResponse.statusCode) body=\(bodyText)")
+            let responseBody: String
+            if path == "/api/auth/signin" || isSenderLumiWrite {
+                responseBody = "<redacted>"
+            } else {
+                responseBody = String(data: data, encoding: .utf8) ?? "<non-utf8 body>"
+            }
+            print("[API] \(path) status=\(httpResponse.statusCode) body=\(responseBody)")
         }
 
         let jsonObject = (try? JSONSerialization.jsonObject(with: data)) ?? [:]
@@ -152,6 +188,9 @@ final class APIClient {
         guard (200...299).contains(httpResponse.statusCode) else {
             if httpResponse.statusCode == 401 {
                 throw APIError.unauthorized
+            }
+            if httpResponse.statusCode == 409 {
+                throw APIError.conflict(jsonDict)
             }
 
             let message = Self.extractMessage(from: jsonDict) ?? HTTPURLResponse.localizedString(forStatusCode: httpResponse.statusCode)
@@ -229,6 +268,9 @@ final class APIClient {
                 throw APIError.unauthorized
             }
             let jsonObject = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+            if httpResponse.statusCode == 409 {
+                throw APIError.conflict(jsonObject)
+            }
             let message = Self.extractMessage(from: jsonObject)
                 ?? HTTPURLResponse.localizedString(forStatusCode: httpResponse.statusCode)
             throw APIError.serverError(statusCode: httpResponse.statusCode, message: message)

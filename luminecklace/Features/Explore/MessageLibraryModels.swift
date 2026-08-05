@@ -21,6 +21,7 @@ nonisolated struct MessageTemplate: Codable, Identifiable, Equatable, Sendable {
     let category: MessageTemplateCategory
     let presentation: LibraryMessagePresentation
     let isQueued: Bool?
+    let queuedSection: QueueSection?
     let wasRecentlyRevealed: Bool?
     let lastUsedAt: String?
 }
@@ -34,15 +35,67 @@ nonisolated struct LibraryMessagePresentation: Codable, Equatable, Sendable {
     let theme: String
     let animation: String
     let sound: String
+    let background: LumiBackgroundKey
+    let font: LumiFontKey
+    let textSize: LumiTextSizeKey
+    let textAlignment: LumiTextAlignmentKey
+    let textPosition: LumiTextPositionKey
+
+    init(
+        theme: String,
+        animation: String,
+        sound: String,
+        background: LumiBackgroundKey? = nil,
+        font: LumiFontKey = .serif,
+        textSize: LumiTextSizeKey = .medium,
+        textAlignment: LumiTextAlignmentKey = .center,
+        textPosition: LumiTextPositionKey = .center
+    ) {
+        self.theme = theme
+        self.animation = animation
+        self.sound = sound
+        self.background = background
+            ?? LumiBackgroundKey(rawValue: theme.lowercased())
+            ?? .heart
+        self.font = font
+        self.textSize = textSize
+        self.textAlignment = textAlignment
+        self.textPosition = textPosition
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case theme
+        case animation
+        case sound
+        case background
+        case font
+        case textSize
+        case textAlignment
+        case textPosition
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        theme = try container.decodeIfPresent(String.self, forKey: .theme) ?? "heart"
+        animation = try container.decodeIfPresent(String.self, forKey: .animation) ?? "breathe"
+        sound = try container.decodeIfPresent(String.self, forKey: .sound) ?? "soft"
+        background = try container.decodeIfPresent(LumiBackgroundKey.self, forKey: .background)
+            ?? LumiBackgroundKey(rawValue: theme.lowercased())
+            ?? .heart
+        font = try container.decodeIfPresent(LumiFontKey.self, forKey: .font) ?? .serif
+        textSize = try container.decodeIfPresent(LumiTextSizeKey.self, forKey: .textSize) ?? .medium
+        textAlignment = try container.decodeIfPresent(LumiTextAlignmentKey.self, forKey: .textAlignment) ?? .center
+        textPosition = try container.decodeIfPresent(LumiTextPositionKey.self, forKey: .textPosition) ?? .center
+    }
 }
 
 nonisolated struct AddLibraryMessageRequest: Codable, Equatable, Sendable {
     let messageId: String
-    let text: String?
+    let destination: QueueSection
 
-    init(messageId: String, text: String? = nil) {
+    init(messageId: String, destination: QueueSection) {
         self.messageId = messageId
-        self.text = text
+        self.destination = destination
     }
 }
 
