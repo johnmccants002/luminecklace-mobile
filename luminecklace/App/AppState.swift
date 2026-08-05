@@ -7,9 +7,15 @@ final class AppState: ObservableObject {
     @Published var user: User?
     @Published var ownedNecklaces: [NecklaceTag] = []
     @Published var packages: [Package] = MockData.defaultPackages
-    @Published var currentMessage: Message?
-    @Published var queueMessages: [Message] = []
+    @Published private(set) var queueSnapshot: QueueSnapshot?
+    @Published private(set) var queueSyncState: QueueSyncState = .idle
+    @Published private(set) var queueActionError: String?
     @Published var composerDraftText = ""
+    @Published var composerBackground: LumiBackgroundKey = .heart
+    @Published var composerFont: LumiFontKey = .serif
+    @Published var composerTextSize: LumiTextSizeKey = .medium
+    @Published var composerTextAlignment: LumiTextAlignmentKey = .center
+    @Published var composerTextPosition: LumiTextPositionKey = .center
     @Published var showRetapHint = false
     @Published var settings = UserSettings()
     @Published var recipientRevealState: RecipientRevealState = .awaitingInvocation
@@ -31,7 +37,12 @@ final class AppState: ObservableObject {
     private let lastTagIdKey = "lumi_last_tag_id"
     private let queueCachePrefix = "lumi_queue_cache_"
     private var composerEditingMessageID: String?
+    private var composerEditingSection: QueueSection?
     private var composerReturnRoute: RootRoute = .senderHome
+
+    // No actor-isolated cleanup is required here. Keeping teardown nonisolated
+    // also lets short-lived AppState instances be released safely in tests.
+    nonisolated deinit {}
 
     var equippedNecklace: NecklaceTag? {
         ownedNecklaces.first(where: { $0.isEquipped })
@@ -57,25 +68,37 @@ final class AppState: ObservableObject {
         equippedNecklace?.reserve
     }
 
+    var currentMessage: Message? {
+        queueSnapshot?.current
+    }
+
+    var queueMessages: [Message] {
+        queueSnapshot?.upNext ?? []
+    }
+
+    var reserveMessages: [Message] {
+        queueSnapshot?.reserve ?? []
+    }
+
+    var isQueueMutating: Bool {
+        queueSyncState == .mutating
+    }
+
     var composerTitle: String {
-        isEditingComposer ? "Edit Lumi" : "Add a Lumi"
+        composerIsEditing ? "Edit Lumi" : "Add a Lumi"
     }
 
     var composerSubtitle: String {
-        isEditingComposer
-            ? "Update this message in the queue. The necklace will keep the current order."
-            : "This will be added to the end of the queue."
+        composerIsEditing
+            ? "Update the message and its presentation."
+            : "Choose whether this Lumi should appear soon or wait in Reserve."
     }
 
     var composerActionTitle: String {
-        isEditingComposer ? "Update Lumi" : "Save Lumi"
+        composerIsEditing ? "Update Lumi" : "Add Lumi"
     }
 
     var composerIsEditing: Bool {
-        composerEditingMessageID != nil
-    }
-
-    private var isEditingComposer: Bool {
         composerEditingMessageID != nil
     }
 
@@ -125,7 +148,8 @@ final class AppState: ObservableObject {
             ownedNecklaces = try await senderService.listSenderNecklaces()
 
             guard !ownedNecklaces.isEmpty else {
-                currentMessage = nil
+                queueSnapshot = nil
+                queueSyncState = .idle
                 persistedTagId = nil
                 route = .noNecklace
                 return
@@ -168,11 +192,15 @@ final class AppState: ObservableObject {
                 updated.lifecycleStatus = snapshot.lifecycleStatus
                 updated.recentlyRevealed = snapshot.recentlyRevealed
                 updated.reserve = snapshot.reserve
+                updated.queueSnapshot = snapshot.queueSnapshot
+                updated.nextLumi = snapshot.queueSnapshot?.current
+                updated.queuedLumis = snapshot.queueSnapshot?.upNext ?? []
+                updated.availableLumiCount = snapshot.queueSnapshot?.continuousSequence.count ?? 0
                 return updated
             }
 
             guard let equipped = equippedNecklace else { return }
-            removeRevealedMessagesFromLocalQueue(equipped.recentlyRevealed)
+            syncQueueState(from: equipped)
         } catch APIError.unauthorized {
             authService.clearLocalSession()
             route = .auth
@@ -181,9 +209,35 @@ final class AppState: ObservableObject {
         }
     }
 
+    func refreshQueueSnapshot() async {
+        guard let equippedID = equippedNecklace?.id, !isQueueMutating else { return }
+        queueSyncState = .loading
+        do {
+            let necklaces = try await senderService.listSenderNecklaces()
+            guard equippedNecklace?.id == equippedID else { return }
+            guard let refreshed = necklaces.first(where: { $0.id == equippedID }),
+                  let snapshot = refreshed.queueSnapshot else {
+                queueSyncState = queueSnapshot == nil
+                    ? .failed("Queue details are unavailable right now.")
+                    : .loaded
+                return
+            }
+            installQueueSnapshot(snapshot)
+        } catch {
+            guard equippedNecklace?.id == equippedID else { return }
+            queueSyncState = queueSnapshot == nil
+                ? .failed("Queue details couldn’t be loaded. Please try again.")
+                : .loaded
+            if queueSnapshot == nil {
+                queueActionError = "Queue details couldn’t be loaded. Please try again."
+            }
+        }
+    }
+
     func routeAfterNecklaceSelection() {
         guard let equipped = equippedNecklace else {
-            currentMessage = nil
+            queueSnapshot = nil
+            queueSyncState = .idle
             route = .noNecklace
             return
         }
@@ -196,29 +250,58 @@ final class AppState: ObservableObject {
         setEquipped(necklaceId: necklaceId)
     }
 
-    func openQueueEditor() {
+    func openUpNextEditor() {
         guard equippedNecklace != nil else { return }
-        route = .queueEditor
+        route = .upNextEditor
+    }
+
+    func openReserveEditor() {
+        guard equippedNecklace != nil else { return }
+        route = .reserveEditor
     }
 
     func closeQueueEditor() {
         route = .senderHome
     }
 
-    func openLumiComposer(editing message: Message? = nil) {
+    func openLumiComposer() {
         guard canAddLumiToEquippedNecklace else { return }
-        composerEditingMessageID = message?.id
-        composerDraftText = message?.text ?? ""
-        composerReturnRoute = route == .queueEditor ? .queueEditor : .senderHome
+        resetComposerDraft()
+        composerBackground = LumiBackgroundKey(
+            rawValue: equippedNecklace?.themeKey.lowercased() ?? ""
+        ) ?? .heart
+        switch route {
+        case .upNextEditor, .reserveEditor:
+            composerReturnRoute = route
+        default:
+            composerReturnRoute = .senderHome
+        }
+        route = .lumiComposer
+    }
+
+    func openLumiComposer(editing message: Message, in section: QueueSection) {
+        guard canAddLumiToEquippedNecklace else { return }
+        let returnRoute = route
+        resetComposerDraft()
+        composerEditingMessageID = message.id
+        composerEditingSection = section
+        composerDraftText = message.text
+        composerBackground = message.experience.backgroundKey
+        composerFont = message.experience.fontKey
+        composerTextSize = message.experience.textSize
+        composerTextAlignment = message.experience.textAlignment
+        composerTextPosition = message.experience.textPosition
+        composerReturnRoute = returnRoute
         route = .lumiComposer
     }
 
     func cancelLumiComposer() {
+        let returnRoute = composerReturnRoute
         resetComposerDraft()
-        route = composerReturnRoute
+        route = returnRoute
     }
 
-    func addLumi(text: String) async throws {
+    func addLumi(text: String, destination: QueueSection) async throws {
         guard let necklace = equippedNecklace else {
             throw APIError.missingRequiredField("equippedNecklace")
         }
@@ -231,34 +314,42 @@ final class AppState: ObservableObject {
             throw APIError.serverError(statusCode: 400, message: "Your Lumi must be 500 characters or fewer.")
         }
 
+        let experience = composerExperience
         if let editingMessageID = composerEditingMessageID {
-            updateQueueMessage(id: editingMessageID, text: trimmed)
+            let edited = try await senderService.editLumi(
+                necklaceId: necklace.id,
+                messageId: editingMessageID,
+                text: trimmed,
+                experience: experience
+            )
+            applyEditResult(
+                edited,
+                messageId: editingMessageID,
+                section: composerEditingSection ?? destination,
+                necklaceId: necklace.id
+            )
         } else {
             let created = try await senderService.addLumi(
                 necklaceId: necklace.id,
-                text: trimmed
+                text: trimmed,
+                destination: destination,
+                experience: experience
             )
-            appendQueueMessage(created)
+            applyCreationResult(created, destination: destination, necklaceId: necklace.id)
         }
 
+        let returnRoute = composerReturnRoute
         resetComposerDraft()
-        route = composerReturnRoute
+        route = returnRoute
     }
 
-    func applyLibraryLumi(_ lumi: SenderLumi, toNecklaceId necklaceId: String) {
+    func applyLibraryLumi(
+        _ result: QueueCreationResult,
+        destination: QueueSection,
+        toNecklaceId necklaceId: String
+    ) {
         guard equippedNecklace?.id == necklaceId else { return }
-        let message = Message(
-            id: lumi.id,
-            text: lumi.text,
-            packageId: "library",
-            timestamp: Date(),
-            experience: Experience(
-                themeKey: lumi.presentation.theme,
-                animationKey: lumi.presentation.animation,
-                soundKey: lumi.presentation.sound
-            )
-        )
-        appendQueueMessage(message)
+        applyCreationResult(result, destination: destination, necklaceId: necklaceId)
     }
 
     func signOut() {
@@ -268,11 +359,10 @@ final class AppState: ObservableObject {
 
         route = .auth
         user = nil
-        currentMessage = nil
-        queueMessages = []
-        composerDraftText = ""
-        composerEditingMessageID = nil
-        composerReturnRoute = .senderHome
+        queueSnapshot = nil
+        queueSyncState = .idle
+        queueActionError = nil
+        resetComposerDraft()
         ownedNecklaces = []
         persistedTagId = nil
         packages = MockData.defaultPackages
@@ -299,8 +389,8 @@ final class AppState: ObservableObject {
         if let equipped = equippedNecklace {
             syncQueueState(from: equipped)
         } else {
-            queueMessages = []
-            currentMessage = nil
+            queueSnapshot = nil
+            queueSyncState = .idle
         }
     }
 
@@ -362,7 +452,6 @@ final class AppState: ObservableObject {
         }
 
         currentRecipientToken = token
-        currentMessage = nil
         recipientRevealState = .resolving
 
         recipientResolutionTask = Task { [weak self] in
@@ -398,7 +487,6 @@ final class AppState: ObservableObject {
         if ownedNecklaces.isEmpty {
             route = .noNecklace
         } else {
-            currentMessage = queueMessages.first
             route = .senderHome
         }
     }
@@ -423,6 +511,7 @@ final class AppState: ObservableObject {
                 let response = try await confirmRevealWithSingleRetry(revealSessionId: lumi.revealSessionId)
                 guard !Task.isCancelled else { return }
                 recipientRevealState = .revealed(lumi, confirmationState: .confirmed(response.revealedAt))
+                await reloadQueueAfterConfirmedReveal()
             } catch {
                 guard !Task.isCancelled else { return }
                 recipientRevealState = .revealed(lumi, confirmationState: .temporarilyFailed)
@@ -439,146 +528,306 @@ final class AppState: ObservableObject {
         }
     }
 
-    private func updateEquippedNecklace(with createdLumi: Message) {
-        guard let currentId = equippedNecklace?.id else { return }
-        let updatedQueue = queueMessages + [createdLumi]
-        ownedNecklaces = ownedNecklaces.map { necklace in
-            guard necklace.id == currentId else { return necklace }
-            var updated = necklace
-            updated.availableLumiCount = updatedQueue.count
-            updated.nextLumi = updatedQueue.first
-            updated.queuedLumis = updatedQueue
-            return updated
+    private func reloadQueueAfterConfirmedReveal() async {
+        guard let equippedID = equippedNecklace?.id else { return }
+        do {
+            let snapshots = try await senderService.listSenderNecklaces()
+            guard let refreshed = snapshots.first(where: { $0.id == equippedID }),
+                  let snapshot = refreshed.queueSnapshot else { return }
+            installQueueSnapshot(snapshot)
+            ownedNecklaces = ownedNecklaces.map { existing in
+                guard existing.id == equippedID else { return existing }
+                var updated = refreshed
+                updated.isEquipped = true
+                return updated
+            }
+        } catch {
+            // The confirmed reveal remains authoritative. Home refresh will retry.
         }
-        queueMessages = updatedQueue
-        currentMessage = updatedQueue.first
-        persistQueueMessages(updatedQueue, necklaceID: currentId)
     }
 
     private func syncQueueState(from necklace: NecklaceTag) {
-        let localQueue = loadPersistedQueueMessages(necklaceID: necklace.id)
-        let cachedOrRemoteQueue = localQueue.isEmpty
-            ? (necklace.queuedLumis.isEmpty ? necklace.nextLumi.map { [$0] } ?? [] : necklace.queuedLumis)
-            : localQueue
-        let revealedIDs = Set(necklace.recentlyRevealed.map(\.id))
-        let resolvedQueue = cachedOrRemoteQueue.filter { !revealedIDs.contains($0.id) }
-        queueMessages = resolvedQueue
-        currentMessage = resolvedQueue.first
-        persistQueueMessages(resolvedQueue, necklaceID: necklace.id)
-        ownedNecklaces = ownedNecklaces.map { item in
-            guard item.id == necklace.id else { return item }
-            var updated = item
-            updated.availableLumiCount = resolvedQueue.count
-            updated.nextLumi = resolvedQueue.first
-            updated.queuedLumis = resolvedQueue
-            return updated
-        }
+        let cached = loadPersistedQueueMessages(necklaceID: necklace.id)
+        let fallbackSnapshot = cached.isEmpty ? nil : try? QueueSnapshot(
+            necklaceId: necklace.id,
+            revision: 0,
+            current: cached.first,
+            upNext: Array(cached.dropFirst()),
+            reserve: []
+        )
+        queueSnapshot = necklace.queueSnapshot ?? fallbackSnapshot
+        queueSyncState = queueSnapshot == nil
+            ? .failed("Queue details are unavailable right now.")
+            : .loaded
+        queueActionError = nil
     }
 
-    private func removeRevealedMessagesFromLocalQueue(_ revealedLumis: [RevealedLumi]) {
-        let revealedIDs = Set(revealedLumis.map(\.id))
-        guard !revealedIDs.isEmpty else { return }
+    private func applyCreationResult(
+        _ result: QueueCreationResult,
+        destination: QueueSection,
+        necklaceId: String
+    ) {
+        guard equippedNecklace?.id == necklaceId else { return }
 
-        let updatedQueue = queueMessages.filter { !revealedIDs.contains($0.id) }
-        guard updatedQueue.count != queueMessages.count,
-              let currentId = equippedNecklace?.id else {
+        if let snapshot = result.snapshot {
+            installQueueSnapshot(snapshot)
             return
         }
 
-        queueMessages = updatedQueue
-        currentMessage = updatedQueue.first
-        persistQueueMessages(updatedQueue, necklaceID: currentId)
-        ownedNecklaces = ownedNecklaces.map { necklace in
-            guard necklace.id == currentId else { return necklace }
-            var updated = necklace
-            updated.availableLumiCount = updatedQueue.count
-            updated.nextLumi = updatedQueue.first
-            updated.queuedLumis = updatedQueue
-            return updated
-        }
+        // Compatibility for the legacy create response. The backend has accepted
+        // the write, but cannot yet return a revisioned snapshot.
+        guard let existing = queueSnapshot
+                ?? (try? QueueSnapshot(
+                    necklaceId: necklaceId,
+                    revision: 0,
+                    current: nil,
+                    upNext: [],
+                    reserve: []
+                )) else { return }
+        let upNext = destination == .upNext
+            ? existing.upNext + [result.message]
+            : existing.upNext
+        let reserve = destination == .reserve
+            ? existing.reserve + [result.message]
+            : existing.reserve
+        guard let updated = try? QueueSnapshot(
+            necklaceId: necklaceId,
+            revision: existing.revision,
+            current: existing.current,
+            upNext: upNext,
+            reserve: reserve
+        ) else { return }
+        installQueueSnapshot(updated)
     }
 
-    private func appendQueueMessage(_ message: Message) {
-        guard let currentId = equippedNecklace?.id else { return }
-        let updatedQueue = queueMessages + [message]
-        queueMessages = updatedQueue
-        currentMessage = updatedQueue.first
-        persistQueueMessages(updatedQueue, necklaceID: currentId)
-        ownedNecklaces = ownedNecklaces.map { necklace in
-            guard necklace.id == currentId else { return necklace }
-            var updated = necklace
-            updated.availableLumiCount = updatedQueue.count
-            updated.nextLumi = updatedQueue.first
-            updated.queuedLumis = updatedQueue
-            return updated
+    private func applyEditResult(
+        _ result: QueueCreationResult,
+        messageId: String,
+        section: QueueSection,
+        necklaceId: String
+    ) {
+        guard equippedNecklace?.id == necklaceId else { return }
+        if let snapshot = result.snapshot {
+            installQueueSnapshot(snapshot)
+            return
         }
+
+        guard let existing = queueSnapshot else { return }
+        let replace: (Message) -> Message = { message in
+            message.id == messageId ? result.message : message
+        }
+        guard let updated = try? QueueSnapshot(
+            necklaceId: existing.necklaceId,
+            revision: existing.revision,
+            current: existing.current.map(replace),
+            upNext: existing.upNext.map(replace),
+            reserve: existing.reserve.map(replace)
+        ) else { return }
+        installQueueSnapshot(updated)
     }
 
-    private func updateQueueMessage(id: String, text: String) {
-        guard let currentId = equippedNecklace?.id else { return }
-        let updatedQueue = queueMessages.map { message -> Message in
-            guard message.id == id else { return message }
-            return Message(
-                id: message.id,
-                text: text,
-                packageId: message.packageId,
-                timestamp: message.timestamp,
-                experience: message.experience
+    func reorderMessages(in section: QueueSection, from source: IndexSet, to destination: Int) {
+        guard !isQueueMutating, let existing = queueSnapshot else { return }
+        var messages = section == .upNext ? existing.upNext : existing.reserve
+        reorder(&messages, from: source, to: destination)
+        guard let proposed = snapshot(existing, replacing: section, with: messages) else { return }
+        Task {
+            await persistQueueMutation(
+                proposed: proposed,
+                operation: .reorder(
+                    section: section,
+                    orderedMessageIDs: messages.map(\.id)
+                )
             )
         }
-        queueMessages = updatedQueue
-        currentMessage = updatedQueue.first
-        persistQueueMessages(updatedQueue, necklaceID: currentId)
+    }
+
+    func makeUpNext(_ messageID: String) {
+        moveMessage(messageID, to: .upNext, placement: .first)
+    }
+
+    func moveToReserve(_ messageID: String) {
+        moveMessage(messageID, to: .reserve, placement: .last)
+    }
+
+    func moveToUpNext(_ messageID: String) {
+        moveMessage(messageID, to: .upNext, placement: .last)
+    }
+
+    func addAsImmediateNext(_ messageID: String) {
+        moveMessage(messageID, to: .upNext, placement: .first)
+    }
+
+    func removeQueuedMessage(_ messageID: String) {
+        guard !isQueueMutating,
+              let existing = queueSnapshot,
+              existing.current?.id != messageID else { return }
+        let proposedUpNext = existing.upNext.filter { $0.id != messageID }
+        let proposedReserve = existing.reserve.filter { $0.id != messageID }
+        guard proposedUpNext.count != existing.upNext.count
+                || proposedReserve.count != existing.reserve.count,
+              let proposed = try? QueueSnapshot(
+                necklaceId: existing.necklaceId,
+                revision: existing.revision,
+                current: existing.current,
+                upNext: proposedUpNext,
+                reserve: proposedReserve
+              ) else { return }
+        Task {
+            await persistQueueMutation(
+                proposed: proposed,
+                operation: .remove(messageID: messageID)
+            )
+        }
+    }
+
+    func clearQueueActionError() {
+        queueActionError = nil
+        if case .failed = queueSyncState {
+            queueSyncState = queueSnapshot == nil ? .idle : .loaded
+        }
+    }
+
+    private func moveMessage(
+        _ messageID: String,
+        to destination: QueueSection,
+        placement: QueuePlacement
+    ) {
+        guard !isQueueMutating, let existing = queueSnapshot else { return }
+        guard let message = (existing.upNext + existing.reserve).first(where: { $0.id == messageID }) else {
+            return
+        }
+
+        var upNext = existing.upNext.filter { $0.id != messageID }
+        var reserve = existing.reserve.filter { $0.id != messageID }
+        if destination == .upNext {
+            if placement == .first {
+                upNext.insert(message, at: 0)
+            } else {
+                upNext.append(message)
+            }
+        } else {
+            if placement == .first {
+                reserve.insert(message, at: 0)
+            } else {
+                reserve.append(message)
+            }
+        }
+
+        guard let proposed = try? QueueSnapshot(
+            necklaceId: existing.necklaceId,
+            revision: existing.revision,
+            current: existing.current,
+            upNext: upNext,
+            reserve: reserve
+        ) else { return }
+        Task {
+            await persistQueueMutation(
+                proposed: proposed,
+                operation: .move(
+                    messageID: messageID,
+                    destination: destination,
+                    placement: placement
+                )
+            )
+        }
+    }
+
+    private func persistQueueMutation(
+        proposed: QueueSnapshot,
+        operation: QueueMutation
+    ) async {
+        guard !isQueueMutating,
+              let confirmed = queueSnapshot,
+              confirmed.necklaceId == proposed.necklaceId else { return }
+
+        queueActionError = nil
+        queueSnapshot = proposed
+        queueSyncState = .mutating
+
+        do {
+            let serverSnapshot = try await senderService.mutateQueue(
+                necklaceId: confirmed.necklaceId,
+                expectedRevision: confirmed.revision,
+                operation: operation
+            )
+            guard equippedNecklace?.id == serverSnapshot.necklaceId else { return }
+            installQueueSnapshot(serverSnapshot)
+        } catch let SenderQueueError.conflict(latest) {
+            guard equippedNecklace?.id == confirmed.necklaceId else { return }
+            if let latest {
+                installQueueSnapshot(latest)
+            } else {
+                queueSnapshot = confirmed
+                queueSyncState = .loaded
+            }
+            queueActionError = "This queue changed somewhere else. The latest order has been loaded."
+        } catch {
+            guard equippedNecklace?.id == confirmed.necklaceId else { return }
+            queueSnapshot = confirmed
+            queueSyncState = .loaded
+            queueActionError = "That change couldn’t be saved. Your previous order was restored."
+        }
+    }
+
+    private func snapshot(
+        _ existing: QueueSnapshot,
+        replacing section: QueueSection,
+        with messages: [Message]
+    ) -> QueueSnapshot? {
+        try? QueueSnapshot(
+            necklaceId: existing.necklaceId,
+            revision: existing.revision,
+            current: existing.current,
+            upNext: section == .upNext ? messages : existing.upNext,
+            reserve: section == .reserve ? messages : existing.reserve
+        )
+    }
+
+    private func installQueueSnapshot(_ snapshot: QueueSnapshot) {
+        queueSnapshot = snapshot
+        queueSyncState = .loaded
+        persistQueueMessages(snapshot.continuousSequence, necklaceID: snapshot.necklaceId)
         ownedNecklaces = ownedNecklaces.map { necklace in
-            guard necklace.id == currentId else { return necklace }
+            guard necklace.id == snapshot.necklaceId else { return necklace }
             var updated = necklace
-            updated.availableLumiCount = updatedQueue.count
-            updated.nextLumi = updatedQueue.first
-            updated.queuedLumis = updatedQueue
+            updated.queueSnapshot = snapshot
+            updated.nextLumi = snapshot.current
+            updated.queuedLumis = snapshot.upNext
+            updated.availableLumiCount = snapshot.continuousSequence.count
             return updated
         }
     }
 
-    func moveQueueMessages(from source: IndexSet, to destination: Int) {
-        guard let currentId = equippedNecklace?.id else { return }
-        var updatedQueue = queueMessages
-        reorder(&updatedQueue, from: source, to: destination)
-        queueMessages = updatedQueue
-        currentMessage = updatedQueue.first
-        persistQueueMessages(updatedQueue, necklaceID: currentId)
-        ownedNecklaces = ownedNecklaces.map { necklace in
-            guard necklace.id == currentId else { return necklace }
-            var updated = necklace
-            updated.availableLumiCount = updatedQueue.count
-            updated.nextLumi = updatedQueue.first
-            updated.queuedLumis = updatedQueue
-            return updated
-        }
+    private func resetComposerDraft() {
+        composerDraftText = ""
+        composerBackground = .heart
+        composerFont = .serif
+        composerTextSize = .medium
+        composerTextAlignment = .center
+        composerTextPosition = .center
+        composerEditingMessageID = nil
+        composerEditingSection = nil
+        composerReturnRoute = .senderHome
     }
 
-    func deleteQueueMessages(at offsets: IndexSet) {
-        guard let currentId = equippedNecklace?.id else { return }
-        let updatedQueue = queueMessages.enumerated().compactMap { index, message in
-            offsets.contains(index) ? nil : message
-        }
-        queueMessages = updatedQueue
-        currentMessage = updatedQueue.first
-        persistQueueMessages(updatedQueue, necklaceID: currentId)
-        ownedNecklaces = ownedNecklaces.map { necklace in
-            guard necklace.id == currentId else { return necklace }
-            var updated = necklace
-            updated.availableLumiCount = updatedQueue.count
-            updated.nextLumi = updatedQueue.first
-            updated.queuedLumis = updatedQueue
-            return updated
-        }
+    private var composerExperience: Experience {
+        Experience(
+            themeKey: composerBackground.rawValue,
+            animationKey: "breathe",
+            soundKey: "soft",
+            backgroundKey: composerBackground,
+            fontKey: composerFont,
+            textSize: composerTextSize,
+            textAlignment: composerTextAlignment,
+            textPosition: composerTextPosition
+        )
     }
 
     private func persistQueueMessages(_ messages: [Message], necklaceID: String) {
         let key = queueCachePrefix + necklaceID
         do {
-            let data = try JSONEncoder().encode(messages)
-            UserDefaults.standard.set(data, forKey: key)
+            UserDefaults.standard.set(try JSONEncoder().encode(messages), forKey: key)
         } catch {
             UserDefaults.standard.removeObject(forKey: key)
         }
@@ -588,12 +837,6 @@ final class AppState: ObservableObject {
         let key = queueCachePrefix + necklaceID
         guard let data = UserDefaults.standard.data(forKey: key) else { return [] }
         return (try? JSONDecoder().decode([Message].self, from: data)) ?? []
-    }
-
-    private func resetComposerDraft() {
-        composerDraftText = ""
-        composerEditingMessageID = nil
-        composerReturnRoute = .senderHome
     }
 
     private func reorder<T>(_ items: inout [T], from source: IndexSet, to destination: Int) {

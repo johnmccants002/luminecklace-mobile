@@ -190,3 +190,22 @@ struct LoadingOverlay: View {
         }
     }
 }
+
+struct LumiAttachmentBadge: View {
+    let attachment: LumiLinkAttachment?
+
+    var body: some View {
+        if let attachment, attachment.isSupportedInstagramLink {
+            Label(
+                "Instagram · \(attachment.displayContentKind)",
+                systemImage: "arrow.up.right.square"
+            )
+            .font(.system(size: 11, weight: .semibold, design: .rounded))
+            .foregroundStyle(LumiTheme.Colors.ink.opacity(0.62))
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(LumiTheme.Colors.roseSoft.opacity(0.62), in: Capsule())
+            .accessibilityLabel("Instagram \(attachment.displayContentKind) attachment")
+        }
+    }
+}

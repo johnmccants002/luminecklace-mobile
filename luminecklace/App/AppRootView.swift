@@ -14,8 +14,10 @@ struct AppRootView: View {
                 NavigationStack { NoNecklaceView() }
             case .senderLoadError:
                 NavigationStack { SenderLoadErrorView() }
-            case .queueEditor:
-                QueueEditorView()
+            case .upNextEditor:
+                UpNextEditorView()
+            case .reserveEditor:
+                ReserveEditorView()
             case .lumiComposer:
                 NavigationStack { LumiComposerView() }
             case .senderHome:

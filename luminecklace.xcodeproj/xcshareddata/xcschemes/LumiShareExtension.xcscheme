@@ -15,9 +15,9 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "31FA69082F5E139F00E81769"
-               BuildableName = "lumiclip.app"
-               BlueprintName = "lumiclip"
+               BlueprintIdentifier = "D10000012F00000000000020"
+               BuildableName = "LumiShareExtension.appex"
+               BlueprintName = "LumiShareExtension"
                ReferencedContainer = "container:luminecklace.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
@@ -29,9 +29,9 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "7B0000012F00000000000003"
-               BuildableName = "LumiClipTests.xctest"
-               BlueprintName = "LumiClipTests"
+               BlueprintIdentifier = "D20000012F00000000000003"
+               BuildableName = "LumiShareExtensionTests.xctest"
+               BlueprintName = "LumiShareExtensionTests"
                ReferencedContainer = "container:luminecklace.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
@@ -41,17 +41,14 @@
       buildConfiguration = "Debug"
       selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
-      shouldUseLaunchSchemeArgsEnv = "YES"
-      shouldAutocreateTestPlan = "YES">
+      shouldUseLaunchSchemeArgsEnv = "YES">
       <Testables>
-         <TestableReference
-            skipped = "NO"
-            parallelizable = "NO">
+         <TestableReference skipped = "NO" parallelizable = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "7B0000012F00000000000003"
-               BuildableName = "LumiClipTests.xctest"
-               BlueprintName = "LumiClipTests"
+               BlueprintIdentifier = "D20000012F00000000000003"
+               BuildableName = "LumiShareExtensionTests.xctest"
+               BlueprintName = "LumiShareExtensionTests"
                ReferencedContainer = "container:luminecklace.xcodeproj">
             </BuildableReference>
          </TestableReference>
@@ -59,62 +56,45 @@
    </TestAction>
    <LaunchAction
       buildConfiguration = "Debug"
-      appClipInvocationURLString = "https://www.luminecklace.com/t/johnmccants-demo-token-active"
-      selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
-      selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
+      selectedDebuggerIdentifier = ""
+      selectedLauncherIdentifier = "Xcode.IDEFoundation.Launcher.PosixSpawn"
       launchStyle = "0"
       useCustomWorkingDirectory = "NO"
       ignoresPersistentStateOnLaunch = "NO"
       debugDocumentVersioning = "YES"
       debugServiceExtension = "internal"
       allowLocationSimulation = "YES">
-      <BuildableProductRunnable
-         runnableDebuggingMode = "0">
+      <RemoteRunnable
+         runnableDebuggingMode = "2"
+         BundleIdentifier = "com.apple.mobilesafari"
+         RemotePath = "/">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "31FA69082F5E139F00E81769"
-            BuildableName = "lumiclip.app"
-            BlueprintName = "lumiclip"
+            BlueprintIdentifier = "D10000012F00000000000020"
+            BuildableName = "LumiShareExtension.appex"
+            BlueprintName = "LumiShareExtension"
             ReferencedContainer = "container:luminecklace.xcodeproj">
          </BuildableReference>
-      </BuildableProductRunnable>
-      <CommandLineArguments>
-         <CommandLineArgument
-            argument = ""
-            isEnabled = "NO">
-         </CommandLineArgument>
-      </CommandLineArguments>
-      <EnvironmentVariables>
-         <EnvironmentVariable
-            key = "LUMI_API_BASE_URL"
-            value = "https://www.luminecklace.com"
-            isEnabled = "YES">
-         </EnvironmentVariable>
-      </EnvironmentVariables>
+      </RemoteRunnable>
    </LaunchAction>
    <ProfileAction
       buildConfiguration = "Release"
-      appClipInvocationURLString = "https://www.luminecklace.com/t/johnmccants-demo-token-active"
       shouldUseLaunchSchemeArgsEnv = "YES"
       savedToolIdentifier = ""
       useCustomWorkingDirectory = "NO"
       debugDocumentVersioning = "YES">
-      <BuildableProductRunnable
-         runnableDebuggingMode = "0">
+      <BuildableProductRunnable runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "31FA69082F5E139F00E81769"
-            BuildableName = "lumiclip.app"
-            BlueprintName = "lumiclip"
+            BlueprintIdentifier = "D10000012F00000000000020"
+            BuildableName = "LumiShareExtension.appex"
+            BlueprintName = "LumiShareExtension"
             ReferencedContainer = "container:luminecklace.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>
-   <AnalyzeAction
-      buildConfiguration = "Debug">
+   <AnalyzeAction buildConfiguration = "Debug">
    </AnalyzeAction>
-   <ArchiveAction
-      buildConfiguration = "Release"
-      revealArchiveInOrganizer = "YES">
+   <ArchiveAction buildConfiguration = "Release" revealArchiveInOrganizer = "YES">
    </ArchiveAction>
 </Scheme>

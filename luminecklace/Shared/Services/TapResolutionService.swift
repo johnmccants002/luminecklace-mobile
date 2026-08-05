@@ -5,7 +5,7 @@ nonisolated protocol RecipientTapServicing {
     func confirmReveal(revealSessionId: String) async throws -> ConfirmRevealResponse
 }
 
-nonisolated final class TapResolutionService: RecipientTapServicing {
+nonisolated struct TapResolutionService: RecipientTapServicing {
     private let baseURL: URL
     private let session: URLSession
     private let encoder = JSONEncoder()

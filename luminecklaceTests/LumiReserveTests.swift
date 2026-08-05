@@ -144,7 +144,8 @@ final class LumiReserveTests: XCTestCase {
         )
 
         XCTAssertEqual(necklace.availableLumiCount, 2)
-        XCTAssertEqual(necklace.queuedLumis.map(\.id), ["personal-1", "personal-2"])
+        XCTAssertEqual(necklace.queueSnapshot?.current?.id, "personal-1")
+        XCTAssertEqual(necklace.queuedLumis.map(\.id), ["personal-2"])
         XCTAssertEqual(necklace.nextLumi?.id, "personal-1")
         XCTAssertFalse(necklace.queuedLumis.contains { $0.id == "reserve-1" })
     }
@@ -165,7 +166,9 @@ final class LumiReserveTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(necklace.queuedLumis.map(\.id), ["first", "second", "third"])
+        XCTAssertEqual(necklace.queueSnapshot?.current?.id, "first")
+        XCTAssertEqual(necklace.queuedLumis.map(\.id), ["second", "third"])
+        XCTAssertTrue(necklace.queueSnapshot?.reserve.isEmpty == true)
     }
 
     func testDecodesRecentlyRevealedHistoryInBackendOrder() throws {
@@ -241,7 +244,8 @@ final class LumiReserveTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(necklace.queuedLumis.map(\.id), ["personal"])
+        XCTAssertEqual(necklace.queueSnapshot?.current?.id, "personal")
+        XCTAssertTrue(necklace.queuedLumis.isEmpty)
         XCTAssertEqual(necklace.recentlyRevealed.map(\.id), ["revealed"])
     }
 

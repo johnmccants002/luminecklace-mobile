@@ -4,7 +4,7 @@ struct AuthResult {
     let user: User
 }
 
-final class AuthService {
+struct AuthService {
     private let client: APIClient
 
     init(client: APIClient = .shared) {
@@ -26,7 +26,6 @@ final class AuthService {
             throw APIError.unauthorized
         }
         client.tokenStore.accessToken = token
-        print("[API] otp token stored length=\(token.count)")
 
         let user = try await resolveUser(from: payload, fallbackEmail: email)
         return AuthResult(user: user)

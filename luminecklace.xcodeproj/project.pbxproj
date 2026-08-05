@@ -8,6 +8,12 @@
 
 /* Begin PBXBuildFile section */
 		31FA69152F5E13A000E81769 /* lumiclip.app in Embed App Clips */ = {isa = PBXBuildFile; fileRef = 31FA69092F5E139F00E81769 /* lumiclip.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		D10000012F00000000000001 /* LumiShareExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = D10000012F00000000000002 /* LumiShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		D10000012F00000000000003 /* luminecklace/SharedCore/LumiLinkAttachment.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000012F00000000000005 /* luminecklace/SharedCore/LumiLinkAttachment.swift */; };
+		D10000012F00000000000004 /* luminecklace/SharedCore/LumiLinkAttachment.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000012F00000000000005 /* luminecklace/SharedCore/LumiLinkAttachment.swift */; };
+		D10000012F00000000000006 /* luminecklace/SharedSenderCore/SharedAuthTokenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000012F00000000000007 /* luminecklace/SharedSenderCore/SharedAuthTokenStore.swift */; };
+		D20000012F0000000000000C /* luminecklace/SharedCore/LumiLinkAttachment.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000012F00000000000005 /* luminecklace/SharedCore/LumiLinkAttachment.swift */; };
+		D20000012F0000000000000D /* luminecklace/SharedSenderCore/SharedAuthTokenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000012F00000000000007 /* luminecklace/SharedSenderCore/SharedAuthTokenStore.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -32,6 +38,20 @@
 			remoteGlobalIDString = 31FA69082F5E139F00E81769;
 			remoteInfo = lumiclip;
 		};
+		D10000012F00000000000008 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 3142618D2F4BC890003D52E8 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D10000012F00000000000020;
+			remoteInfo = LumiShareExtension;
+		};
+		D20000012F00000000000008 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 3142618D2F4BC890003D52E8 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 314261942F4BC890003D52E8;
+			remoteInfo = luminecklace;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -46,6 +66,17 @@
 			name = "Embed App Clips";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D10000012F00000000000009 /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				D10000012F00000000000001 /* LumiShareExtension.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
@@ -53,6 +84,10 @@
 		31FA69092F5E139F00E81769 /* lumiclip.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = lumiclip.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		7A0000012F00000000000001 /* luminecklaceTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = luminecklaceTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		7B0000012F00000000000001 /* LumiClipTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LumiClipTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		D10000012F00000000000002 /* LumiShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = LumiShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		D10000012F00000000000005 /* luminecklace/SharedCore/LumiLinkAttachment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = luminecklace/SharedCore/LumiLinkAttachment.swift; sourceTree = SOURCE_ROOT; };
+		D10000012F00000000000007 /* luminecklace/SharedSenderCore/SharedAuthTokenStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = luminecklace/SharedSenderCore/SharedAuthTokenStore.swift; sourceTree = SOURCE_ROOT; };
+		D20000012F00000000000001 /* LumiShareExtensionTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LumiShareExtensionTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -62,6 +97,23 @@
 				Info.plist,
 			);
 			target = 31FA69082F5E139F00E81769 /* lumiclip */;
+		};
+		D10000012F0000000000000A /* Exceptions for "LumiShareExtension" folder in "LumiShareExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = D10000012F00000000000020 /* LumiShareExtension */;
+		};
+		D20000012F0000000000000E /* Exceptions for "LumiShareExtension" folder in "LumiShareExtensionTests" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+				LumiShareExtension.entitlements,
+				ShareLumiRootView.swift,
+				ShareViewController.swift,
+			);
+			target = D20000012F00000000000003 /* LumiShareExtensionTests */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -92,6 +144,20 @@
 		7C0000012F00000000000002 /* SharedReveal */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = SharedReveal;
+			sourceTree = "<group>";
+		};
+		D10000012F0000000000000B /* LumiShareExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				D10000012F0000000000000A /* Exceptions for "LumiShareExtension" folder in "LumiShareExtension" target */,
+				D20000012F0000000000000E /* Exceptions for "LumiShareExtension" folder in "LumiShareExtensionTests" target */,
+			);
+			path = LumiShareExtension;
+			sourceTree = "<group>";
+		};
+		D20000012F00000000000002 /* LumiShareExtensionTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = LumiShareExtensionTests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -125,6 +191,20 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D10000012F0000000000000C /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D20000012F00000000000005 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -133,7 +213,10 @@
 			children = (
 				314261972F4BC890003D52E8 /* luminecklace */,
 				31FA690A2F5E139F00E81769 /* LumiClip */,
+				D10000012F0000000000000B /* LumiShareExtension */,
+				D20000012F00000000000002 /* LumiShareExtensionTests */,
 				7C0000012F00000000000002 /* SharedReveal */,
+				D10000012F0000000000000D /* Shared Extension Sources */,
 				7A0000012F00000000000002 /* luminecklaceTests */,
 				7B0000012F00000000000002 /* LumiClipTests */,
 				314261962F4BC890003D52E8 /* Products */,
@@ -145,10 +228,21 @@
 			children = (
 				314261952F4BC890003D52E8 /* luminecklace.app */,
 				31FA69092F5E139F00E81769 /* lumiclip.app */,
+				D10000012F00000000000002 /* LumiShareExtension.appex */,
+				D20000012F00000000000001 /* LumiShareExtensionTests.xctest */,
 				7A0000012F00000000000001 /* luminecklaceTests.xctest */,
 				7B0000012F00000000000001 /* LumiClipTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		D10000012F0000000000000D /* Shared Extension Sources */ = {
+			isa = PBXGroup;
+			children = (
+				D10000012F00000000000005 /* luminecklace/SharedCore/LumiLinkAttachment.swift */,
+				D10000012F00000000000007 /* luminecklace/SharedSenderCore/SharedAuthTokenStore.swift */,
+			);
+			name = "Shared Extension Sources";
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -162,11 +256,13 @@
 				314261922F4BC890003D52E8 /* Frameworks */,
 				314261932F4BC890003D52E8 /* Resources */,
 				314261B82F4BC94D003D52E8 /* Embed App Clips */,
+				D10000012F00000000000009 /* Embed App Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 				31FA69142F5E13A000E81769 /* PBXTargetDependency */,
+				D10000012F00000000000010 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				314261972F4BC890003D52E8 /* luminecklace */,
@@ -248,6 +344,52 @@
 			productReference = 7B0000012F00000000000001 /* LumiClipTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		D10000012F00000000000020 /* LumiShareExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D10000012F00000000000024 /* Build configuration list for PBXNativeTarget "LumiShareExtension" */;
+			buildPhases = (
+				D10000012F0000000000000E /* Sources */,
+				D10000012F0000000000000C /* Frameworks */,
+				D10000012F0000000000000F /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				D10000012F0000000000000B /* LumiShareExtension */,
+			);
+			name = LumiShareExtension;
+			packageProductDependencies = (
+			);
+			productName = LumiShareExtension;
+			productReference = D10000012F00000000000002 /* LumiShareExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		D20000012F00000000000003 /* LumiShareExtensionTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D20000012F00000000000007 /* Build configuration list for PBXNativeTarget "LumiShareExtensionTests" */;
+			buildPhases = (
+				D20000012F00000000000004 /* Sources */,
+				D20000012F00000000000005 /* Frameworks */,
+				D20000012F00000000000006 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				D20000012F0000000000000B /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				D10000012F0000000000000B /* LumiShareExtension */,
+				D20000012F00000000000002 /* LumiShareExtensionTests */,
+			);
+			name = LumiShareExtensionTests;
+			packageProductDependencies = (
+			);
+			productName = LumiShareExtensionTests;
+			productReference = D20000012F00000000000001 /* LumiShareExtensionTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -272,6 +414,13 @@
 						CreatedOnToolsVersion = 26.2;
 						TestTargetID = 31FA69082F5E13A000E81769;
 					};
+					D10000012F00000000000020 = {
+						CreatedOnToolsVersion = 26.2;
+					};
+					D20000012F00000000000003 = {
+						CreatedOnToolsVersion = 26.2;
+						TestTargetID = D10000012F00000000000020;
+					};
 				};
 			};
 			buildConfigurationList = 314261902F4BC890003D52E8 /* Build configuration list for PBXProject "luminecklace" */;
@@ -290,6 +439,8 @@
 			targets = (
 				314261942F4BC890003D52E8 /* luminecklace */,
 				31FA69082F5E139F00E81769 /* lumiclip */,
+				D10000012F00000000000020 /* LumiShareExtension */,
+				D20000012F00000000000003 /* LumiShareExtensionTests */,
 				7A0000012F00000000000003 /* luminecklaceTests */,
 				7B0000012F00000000000003 /* LumiClipTests */,
 			);
@@ -325,6 +476,20 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D10000012F0000000000000F /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D20000012F00000000000006 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -339,6 +504,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D10000012F00000000000003 /* luminecklace/SharedCore/LumiLinkAttachment.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -353,6 +519,24 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D10000012F0000000000000E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D10000012F00000000000004 /* luminecklace/SharedCore/LumiLinkAttachment.swift in Sources */,
+				D10000012F00000000000006 /* luminecklace/SharedSenderCore/SharedAuthTokenStore.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D20000012F00000000000004 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D20000012F0000000000000C /* luminecklace/SharedCore/LumiLinkAttachment.swift in Sources */,
+				D20000012F0000000000000D /* luminecklace/SharedSenderCore/SharedAuthTokenStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -373,6 +557,16 @@
 			isa = PBXTargetDependency;
 			target = 31FA69082F5E139F00E81769 /* lumiclip */;
 			targetProxy = 7B0000012F0000000000000A /* PBXContainerItemProxy */;
+		};
+		D10000012F00000000000010 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D10000012F00000000000020 /* LumiShareExtension */;
+			targetProxy = D10000012F00000000000008 /* PBXContainerItemProxy */;
+		};
+		D20000012F0000000000000B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 314261942F4BC890003D52E8 /* luminecklace */;
+			targetProxy = D20000012F00000000000008 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -510,6 +704,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Lumi Necklace";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.lifestyle";
+				INFOPLIST_KEY_LUMIKeychainAccessGroup = "$(AppIdentifierPrefix)luminecklace.shared";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -559,6 +754,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Lumi Necklace";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.lifestyle";
+				INFOPLIST_KEY_LUMIKeychainAccessGroup = "$(AppIdentifierPrefix)luminecklace.shared";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -776,6 +972,126 @@
 			};
 			name = Release;
 		};
+		D10000012F00000000000021 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = LumiShareExtension/LumiShareExtension.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 5;
+				DEVELOPMENT_TEAM = 7HTV4A5W6Y;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = LumiShareExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.1;
+				PRODUCT_BUNDLE_IDENTIFIER = luminecklace.luminecklace.ShareExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		D10000012F00000000000022 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = LumiShareExtension/LumiShareExtension.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 5;
+				DEVELOPMENT_TEAM = 7HTV4A5W6Y;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = LumiShareExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.1;
+				PRODUCT_BUNDLE_IDENTIFIER = luminecklace.luminecklace.ShareExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		D20000012F00000000000009 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7HTV4A5W6Y;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = luminecklace.LumiShareExtensionTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/luminecklace.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/luminecklace";
+			};
+			name = Debug;
+		};
+		D20000012F0000000000000A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7HTV4A5W6Y;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = luminecklace.LumiShareExtensionTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/luminecklace.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/luminecklace";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -820,6 +1136,24 @@
 			buildConfigurations = (
 				7B0000012F00000000000008 /* Debug */,
 				7B0000012F00000000000009 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		D10000012F00000000000024 /* Build configuration list for PBXNativeTarget "LumiShareExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D10000012F00000000000021 /* Debug */,
+				D10000012F00000000000022 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		D20000012F00000000000007 /* Build configuration list for PBXNativeTarget "LumiShareExtensionTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D20000012F00000000000009 /* Debug */,
+				D20000012F0000000000000A /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

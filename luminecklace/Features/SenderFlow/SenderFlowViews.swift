@@ -89,196 +89,796 @@ struct SenderLoadErrorView: View {
 
 struct LumiComposerView: View {
     @EnvironmentObject private var appState: AppState
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @FocusState private var isTextFocused: Bool
     @State private var isSaving = false
     @State private var errorMessage: String?
+    @State private var selectedTool: ComposerTool? = .background
+    @State private var departingTool: ComposerTool?
+    @State private var isPreparingTextEditing = false
+    @State private var isTextEditing = false
+    @State private var textEntryTask: Task<Void, Never>?
 
-    var body: some View {
-        ZStack {
-            LumiTheme.Colors.pageBackground.ignoresSafeArea()
+    private enum ComposerTool: String, CaseIterable {
+        case background = "Background"
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    Text(appState.composerTitle)
-                        .font(LumiTheme.Typography.display(32))
-                        .foregroundStyle(LumiTheme.Colors.ink)
-
-                    Text(appState.composerSubtitle)
-                        .font(LumiTheme.Typography.body(15))
-                        .foregroundStyle(LumiTheme.Colors.ink.opacity(0.72))
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Your Lumi")
-                            .font(LumiTheme.Typography.body(14).weight(.medium))
-                            .foregroundStyle(LumiTheme.Colors.ink.opacity(0.84))
-
-                        TextEditor(text: composerDraftBinding)
-                            .frame(minHeight: 140)
-                            .padding(8)
-                            .background(Color.white.opacity(0.94))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .stroke(LumiTheme.Colors.cardStroke, lineWidth: 1)
-                            )
-                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                            .foregroundStyle(LumiTheme.Colors.ink)
-
-                        Text("\(appState.composerDraftText.count)/500")
-                            .font(LumiTheme.Typography.body(12))
-                            .foregroundStyle(appState.composerDraftText.count > 500 ? .red : LumiTheme.Colors.ink.opacity(0.56))
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                    }
-
-                    MessageCardView(message: previewMessage)
-
-                    if let errorMessage, !errorMessage.isEmpty {
-                        Text(errorMessage)
-                            .foregroundStyle(.red)
-                            .font(LumiTheme.Typography.body(14))
-                    }
-
-                    PrimaryButton(title: appState.composerActionTitle, isLoading: isSaving) {
-                        Task {
-                            isSaving = true
-                            defer { isSaving = false }
-                            do {
-                                try await appState.addLumi(text: appState.composerDraftText)
-                            } catch {
-                                errorMessage = error.localizedDescription
-                            }
-                        }
-                    }
-
-                    Button("Cancel") {
-                        appState.cancelLumiComposer()
-                    }
-                    .buttonStyle(SecondaryButtonStyle())
-                }
-                .padding(20)
+        var icon: String {
+            switch self {
+            case .background: "paintpalette"
             }
         }
     }
 
-    private var previewMessage: Message {
-        let text = appState.composerDraftText.trimmingCharacters(in: .whitespacesAndNewlines)
-        return Message(
-            id: "preview",
-            text: text.isEmpty ? "Write a Lumi to preview it here." : text,
-            packageId: "love",
-            timestamp: Date(),
-            experience: Experience(
-                themeKey: appState.equippedNecklace?.themeKey ?? "heart",
-                animationKey: "breathe",
-                soundKey: "soft"
+    var body: some View {
+        ZStack {
+            LumiBackgroundResolver.background(for: appState.composerBackground)
+                .ignoresSafeArea()
+
+            ambientCanvasDecoration
+                .ignoresSafeArea()
+
+            composerCanvas
+
+            VStack {
+                topBar
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+
+            HStack {
+                Spacer()
+                toolRail
+            }
+            .padding(.trailing, 10)
+            .padding(.top, dynamicTypeSize.isAccessibilitySize ? 106 : 132)
+            .padding(.bottom, selectedTool == nil ? 82 : 190)
+            .opacity(isTextModeActive ? 0 : 1)
+            .offset(x: reduceMotion || !isTextModeActive ? 0 : 18)
+            .allowsHitTesting(!isTextModeActive)
+            .accessibilityHidden(isTextModeActive)
+
+            if let errorMessage, !errorMessage.isEmpty {
+                VStack {
+                    Spacer()
+                    Text(errorMessage)
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 12)
+                        .background(.red.opacity(0.88), in: Capsule())
+                        .padding(.bottom, selectedTool == nil ? 82 : 210)
+                }
+                .padding(.horizontal, 24)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            bottomControls
+        }
+        .preferredColorScheme(.dark)
+        .onChange(of: isTextFocused) { _, focused in
+            guard !focused, isTextEditing else { return }
+            withAnimation(composerTransitionAnimation) {
+                isTextEditing = false
+            }
+        }
+        .onDisappear {
+            textEntryTask?.cancel()
+        }
+    }
+
+    private var composerCanvas: some View {
+        let pointSize = LumiTextLayoutResolver.effectivePointSize(
+            for: appState.composerTextSize,
+            characterCount: appState.composerDraftText.count
+        )
+        let horizontalAlignment = LumiTextLayoutResolver.horizontalAlignment(
+            for: appState.composerTextAlignment
+        )
+        let verticalAlignment = LumiTextLayoutResolver.verticalAlignment(
+            for: appState.composerTextPosition
+        )
+
+        return GeometryReader { _ in
+            TextField(
+                "",
+                text: composerDraftBinding,
+                prompt: Text("Tap to write your message")
+                    .foregroundStyle(
+                        LumiBackgroundResolver.foreground(for: appState.composerBackground)
+                            .opacity(0.34)
+                    ),
+                axis: .vertical
+            )
+            .lineLimit(1...16)
+            .font(
+                .system(
+                    size: pointSize,
+                    weight: .regular,
+                    design: LumiTextLayoutResolver.fontDesign(for: appState.composerFont)
+                )
+            )
+            .multilineTextAlignment(
+                LumiTextLayoutResolver.textAlignment(for: appState.composerTextAlignment)
+            )
+            .foregroundStyle(LumiBackgroundResolver.foreground(for: appState.composerBackground))
+            .tint(.white)
+            .focused($isTextFocused)
+            .textFieldStyle(.plain)
+            .allowsHitTesting(isTextEditing)
+            .frame(maxWidth: .infinity, alignment: horizontalAlignment)
+            // Symmetric bounds keep centered text anchored while the side rail
+            // fades and while the keyboard changes the available height.
+            .padding(.horizontal, 76)
+            .padding(.top, 108)
+            .padding(.bottom, 72)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: verticalAlignment)
+            .overlay {
+                if !isTextEditing {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            beginTextEditing()
+                        }
+                        .accessibilityElement()
+                        .accessibilityLabel(
+                            appState.composerDraftText.isEmpty
+                                ? "Tap to write your message"
+                                : "Edit Lumi message"
+                        )
+                        .accessibilityAddTraits(.isButton)
+                }
+            }
+            .accessibilityLabel("Lumi message")
+            .accessibilityHint("Enter up to 500 characters")
+        }
+    }
+
+    private var topBar: some View {
+        HStack {
+            Button {
+                textEntryTask?.cancel()
+                isTextFocused = false
+                appState.cancelLumiComposer()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.body.weight(.semibold))
+                    .frame(width: 44, height: 44)
+                    .background(.black.opacity(0.34), in: Circle())
+                    .overlay(Circle().stroke(.white.opacity(0.12), lineWidth: 1))
+            }
+            .accessibilityLabel("Close composer")
+            .opacity(isTextModeActive ? 0 : 1)
+            .allowsHitTesting(!isTextModeActive)
+
+            Spacer()
+
+            if appState.composerDraftText.count >= 400 {
+                Text("\(appState.composerDraftText.count)/500")
+                    .font(.caption.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(
+                        appState.composerDraftText.count > 500
+                            ? Color.yellow
+                            : Color.white.opacity(0.82)
+                    )
+                    .padding(.trailing, 6)
+                    .transition(.opacity)
+            }
+
+            if isTextModeActive {
+                Button("Done") {
+                    finishTextEditing()
+                }
+                .font(.headline)
+                .padding(.horizontal, 18)
+                .frame(minHeight: 44)
+                .background(.black.opacity(0.38), in: Capsule())
+                .overlay(Capsule().stroke(.white.opacity(0.16), lineWidth: 1))
+                .accessibilityHint("Finishes editing the message")
+                .transition(.opacity)
+            } else {
+                Button {
+                    advanceFromComposer()
+                } label: {
+                    Group {
+                        if isSaving {
+                            ProgressView()
+                                .tint(.white)
+                        } else {
+                            Text(appState.composerIsEditing ? "Save" : "Next")
+                                .font(.headline)
+                        }
+                    }
+                    .frame(minWidth: 72, minHeight: 44)
+                    .background(
+                        LinearGradient(
+                            colors: [
+                                LumiTheme.Colors.rose,
+                                Color(red: 1.0, green: 0.46, blue: 0.35)
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        ),
+                        in: Capsule()
+                    )
+                }
+                .disabled(!canAdvance || isSaving)
+                .opacity(canAdvance ? 1 : 0.48)
+                .accessibilityHint(
+                    appState.composerIsEditing
+                        ? "Saves your changes"
+                        : "Saves this Lumi to Up Next"
+                )
+            }
+        }
+        .foregroundStyle(.white)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 20)
+        .padding(.top, 10)
+    }
+
+    private var toolRail: some View {
+        VStack(spacing: dynamicTypeSize.isAccessibilitySize ? 8 : 12) {
+            ForEach(ComposerTool.allCases, id: \.self) { tool in
+                let selected = selectedTool == tool
+                Button {
+                    withAnimation(composerTransitionAnimation) {
+                        selectedTool = selected ? nil : tool
+                    }
+                } label: {
+                    VStack(spacing: 6) {
+                        ZStack {
+                            Circle()
+                                .fill(.black.opacity(selected ? 0.58 : 0.42))
+                                .frame(width: 46, height: 46)
+                            Image(systemName: tool.icon)
+                                .font(.system(size: 19, weight: .medium))
+                                .symbolRenderingMode(.hierarchical)
+                            if selected {
+                                Circle()
+                                    .stroke(.white, lineWidth: 2)
+                                    .frame(width: 46, height: 46)
+
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.caption2)
+                                    .background(.black, in: Circle())
+                                    .offset(x: 17, y: 17)
+                                    .accessibilityHidden(true)
+                            }
+                        }
+
+                        Text(tool.rawValue)
+                            .font(.caption2.weight(.semibold))
+                            .shadow(color: .black.opacity(0.45), radius: 3, y: 1)
+                    }
+                    .frame(width: 64)
+                    .frame(minHeight: 58)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.white)
+                .accessibilityValue(selected ? "Selected" : "Not selected")
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var bottomControls: some View {
+        if isTextEditing {
+            textEditingAccessory
+            .transition(editingBarTransition)
+        } else if isPreparingTextEditing, let departingTool {
+            // Retain the outgoing drawer's measured height while it fades.
+            // This prevents the canvas from resizing before the keyboard starts
+            // its own safe-area animation.
+            toolDrawer(for: departingTool)
+                .opacity(0)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        } else if let selectedTool {
+            toolDrawer(for: selectedTool)
+                .transition(panelTransition)
+        } else {
+            Button {
+                beginTextEditing()
+            } label: {
+                Label("Tap text to edit", systemImage: "pencil")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 22)
+                    .frame(minHeight: 50)
+                    .background(.black.opacity(0.28), in: Capsule())
+                    .overlay(Capsule().stroke(.white.opacity(0.22), lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            .padding(.bottom, 14)
+            .transition(.opacity)
+        }
+    }
+
+    private var textEditingAccessory: some View {
+        VStack(spacing: 8) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(LumiFontKey.allCases, id: \.self) { font in
+                        let selected = appState.composerFont == font
+                        Button {
+                            withAnimation(composerTransitionAnimation) {
+                                appState.composerFont = font
+                            }
+                        } label: {
+                            Text(font.rawValue.capitalized)
+                                .font(
+                                    .system(
+                                        size: 15,
+                                        weight: selected ? .semibold : .regular,
+                                        design: LumiTextLayoutResolver.fontDesign(for: font)
+                                    )
+                                )
+                                .padding(.horizontal, 15)
+                                .frame(height: 36)
+                                .background(
+                                    selected ? Color.white : Color.white.opacity(0.08),
+                                    in: Capsule()
+                                )
+                                .foregroundStyle(selected ? Color.black : Color.white)
+                                .overlay(
+                                    Capsule().stroke(
+                                        selected ? Color.white : Color.white.opacity(0.16),
+                                        lineWidth: 1
+                                    )
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("\(font.rawValue.capitalized) font")
+                        .accessibilityValue(selected ? "Selected" : "Not selected")
+                        .accessibilityAddTraits(selected ? .isSelected : [])
+                    }
+                }
+                .padding(.horizontal, 14)
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    Menu {
+                        ForEach(LumiTextAlignmentKey.allCases, id: \.self) { alignment in
+                            Button(alignment.accessibilityName) {
+                                appState.composerTextAlignment = alignment
+                            }
+                        }
+                    } label: {
+                        editingToolLabel(
+                            icon: appState.composerTextAlignment.systemImage,
+                            title: "Align"
+                        )
+                    }
+                    .accessibilityLabel("Text alignment")
+                    .accessibilityValue(appState.composerTextAlignment.accessibilityName)
+
+                    Menu {
+                        ForEach(LumiTextSizeKey.allCases, id: \.self) { size in
+                            Button(size.rawValue.capitalized) {
+                                appState.composerTextSize = size
+                            }
+                        }
+                    } label: {
+                        editingToolLabel(icon: "textformat.size", title: "Size")
+                    }
+                    .accessibilityLabel("Text size")
+                    .accessibilityValue(appState.composerTextSize.rawValue.capitalized)
+
+                    Menu {
+                        ForEach(LumiTextPositionKey.allCases, id: \.self) { position in
+                            Button(position.rawValue.capitalized) {
+                                appState.composerTextPosition = position
+                            }
+                        }
+                    } label: {
+                        editingToolLabel(
+                            icon: appState.composerTextPosition.systemImage,
+                            title: "Position"
+                        )
+                    }
+                    .accessibilityLabel("Text position")
+                    .accessibilityValue(appState.composerTextPosition.rawValue.capitalized)
+                }
+                .padding(.horizontal, 14)
+            }
+        }
+        .padding(.vertical, 9)
+        .background(.ultraThinMaterial)
+        .background(.black.opacity(0.7))
+    }
+
+    private func editingToolLabel(
+        icon: String,
+        title: String
+    ) -> some View {
+        VStack(spacing: 3) {
+            Image(systemName: icon)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(.white)
+            Text(title)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.82))
+        }
+        .frame(width: 58, height: 43)
+        .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(.white.opacity(0.12), lineWidth: 1)
+        )
+    }
+
+    private func toolDrawer(for tool: ComposerTool) -> some View {
+        VStack(spacing: 0) {
+            Capsule()
+                .fill(.white.opacity(0.28))
+                .frame(width: 40, height: 4)
+                .padding(.top, 7)
+
+            HStack {
+                Text(tool.rawValue)
+                    .font(.headline)
+                Spacer()
+                Button("Done") {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        selectedTool = nil
+                    }
+                }
+                .font(.headline)
+                .foregroundStyle(Color(red: 1.0, green: 0.30, blue: 0.54))
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+            .padding(.bottom, 10)
+
+            drawerContent(for: tool)
+                .padding(.bottom, 12)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .foregroundStyle(.white)
+        .background(.ultraThinMaterial)
+        .background(.black.opacity(0.62))
+        .clipShape(
+            UnevenRoundedRectangle(
+                topLeadingRadius: 24,
+                topTrailingRadius: 24
             )
         )
+        .overlay(alignment: .top) {
+            UnevenRoundedRectangle(
+                topLeadingRadius: 24,
+                topTrailingRadius: 24
+            )
+            .stroke(.white.opacity(0.1), lineWidth: 1)
+        }
+    }
+
+    @ViewBuilder
+    private func drawerContent(for tool: ComposerTool) -> some View {
+        switch tool {
+        case .background:
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 14) {
+                    ForEach(LumiBackgroundKey.allCases, id: \.self) { background in
+                        let selected = appState.composerBackground == background
+                        Button {
+                            appState.composerBackground = background
+                        } label: {
+                            VStack(spacing: 7) {
+                                LumiBackgroundResolver.background(for: background)
+                                    .frame(width: 64, height: 82)
+                                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 14)
+                                            .stroke(.white, lineWidth: selected ? 3 : 0)
+                                    )
+                                    .overlay(alignment: .topTrailing) {
+                                        if selected {
+                                            Image(systemName: "checkmark.circle.fill")
+                                                .symbolRenderingMode(.palette)
+                                                .foregroundStyle(.black, .white)
+                                                .padding(7)
+                                        }
+                                    }
+
+                                Text(background.rawValue.capitalized)
+                                    .font(.caption.weight(selected ? .bold : .regular))
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityValue(selected ? "Selected" : "Not selected")
+                        .accessibilityAddTraits(selected ? .isSelected : [])
+                    }
+                }
+                .padding(.horizontal, 20)
+            }
+            // A horizontal ScrollView has an ambiguous intrinsic height inside
+            // a safe-area inset. Reserve its full thumbnail height so the
+            // drawer is measured above the home indicator instead of clipped.
+            .frame(height: 108)
+
+        }
+    }
+
+    private var ambientCanvasDecoration: some View {
+        GeometryReader { geometry in
+            ZStack {
+                Circle()
+                    .fill(.white.opacity(0.13))
+                    .frame(width: geometry.size.width * 0.72)
+                    .blur(radius: 70)
+                    .offset(
+                        x: geometry.size.width * 0.28,
+                        y: geometry.size.height * 0.14
+                    )
+
+                VStack {
+                    Spacer()
+                    LinearGradient(
+                        colors: [.clear, .black.opacity(0.3)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: geometry.size.height * 0.32)
+                }
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        }
+    }
+
+    private var canAdvance: Bool {
+        let trimmed = appState.composerDraftText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmed.isEmpty && trimmed.count <= 500
+    }
+
+    private func advanceFromComposer() {
+        finishTextEditing()
+        save(to: .upNext)
+    }
+
+    private var isTextModeActive: Bool {
+        isPreparingTextEditing || isTextEditing
+    }
+
+    private var composerTransitionAnimation: Animation? {
+        reduceMotion ? nil : .easeInOut(duration: 0.24)
+    }
+
+    private var panelTransition: AnyTransition {
+        reduceMotion
+            ? .opacity
+            : .move(edge: .bottom).combined(with: .opacity)
+    }
+
+    private var editingBarTransition: AnyTransition {
+        reduceMotion
+            ? .opacity
+            : .move(edge: .bottom).combined(with: .opacity)
+    }
+
+    private func beginTextEditing() {
+        guard !isTextModeActive else { return }
+        textEntryTask?.cancel()
+        errorMessage = nil
+
+        guard !reduceMotion, let selectedTool else {
+            self.selectedTool = nil
+            activateTextEditing()
+            return
+        }
+
+        departingTool = selectedTool
+        withAnimation(composerTransitionAnimation) {
+            isPreparingTextEditing = true
+            self.selectedTool = nil
+        }
+
+        textEntryTask = Task {
+            try? await Task.sleep(nanoseconds: 180_000_000)
+            guard !Task.isCancelled else { return }
+            activateTextEditing()
+        }
+    }
+
+    private func activateTextEditing() {
+        withAnimation(composerTransitionAnimation) {
+            isPreparingTextEditing = false
+            isTextEditing = true
+        }
+        departingTool = nil
+
+        Task {
+            await Task.yield()
+            guard isTextEditing else { return }
+            isTextFocused = true
+        }
+    }
+
+    private func finishTextEditing() {
+        textEntryTask?.cancel()
+        textEntryTask = nil
+        isTextFocused = false
+        withAnimation(composerTransitionAnimation) {
+            isPreparingTextEditing = false
+            isTextEditing = false
+        }
+        departingTool = nil
+    }
+
+    private func save(to destination: QueueSection) {
+        Task {
+            isSaving = true
+            errorMessage = nil
+            defer { isSaving = false }
+            do {
+                try await appState.addLumi(
+                    text: appState.composerDraftText,
+                    destination: destination
+                )
+            } catch {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    errorMessage = error.localizedDescription
+                }
+            }
+        }
     }
 
     private var composerDraftBinding: Binding<String> {
         Binding(
             get: { appState.composerDraftText },
-            set: { appState.composerDraftText = $0 }
+            set: { appState.composerDraftText = String($0.prefix(500)) }
         )
     }
 }
 
-struct QueueEditorView: View {
+struct UpNextEditorView: View {
+    var body: some View {
+        QueueSectionEditorView(section: .upNext)
+    }
+}
+
+struct ReserveEditorView: View {
+    var body: some View {
+        QueueSectionEditorView(section: .reserve)
+    }
+}
+
+private struct QueueSectionEditorView: View {
     @EnvironmentObject private var appState: AppState
     @State private var editMode: EditMode = .active
+    @State private var pendingRemoval: Message?
+
+    let section: QueueSection
+
+    private var messages: [Message] {
+        section == .upNext ? appState.queueMessages : appState.reserveMessages
+    }
+
+    private var title: String {
+        section == .upNext ? "Edit Up Next" : "Edit Reserve"
+    }
+
+    private var explanation: String {
+        section == .upNext
+            ? "These messages appear after the current Lumi, in this order."
+            : "Reserve continues after Up Next. It stays here until Up Next runs out or you move a message forward."
+    }
+
+    private var emptyTitle: String {
+        section == .upNext ? "Nothing is Up Next" : "Reserve is empty"
+    }
+
+    private var emptyDetail: String {
+        section == .upNext
+            ? "When the current Lumi is revealed, Reserve will continue in its own order."
+            : "Add messages here to keep them behind Up Next."
+    }
 
     var body: some View {
         ZStack {
             LumiTheme.Colors.pageBackground.ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 16) {
-                queueHeader
+                header
 
-                if appState.queueMessages.isEmpty {
-                    queueSectionHeader(
-                        title: "Personal queue",
-                        subtitle: "Your own Lumis always reveal first."
-                    )
+                if let error = appState.queueActionError {
+                    QueueErrorBanner(message: error) {
+                        appState.clearQueueActionError()
+                    }
+                }
 
+                if messages.isEmpty {
                     EmptyStateView(
-                        title: "Your queue is empty",
-                        subtitle: "Reserve will keep the necklace glowing until you add another personal Lumi.",
-                        systemImage: "sparkles"
+                        title: emptyTitle,
+                        subtitle: emptyDetail,
+                        systemImage: section == .upNext ? "sparkles" : "tray"
                     )
-
-                    queueSectionHeader(
-                        title: "Lumi Reserve",
-                        subtitle: "Extra Lumis waiting behind your personal queue."
-                    )
-
-                    LumiReserveQueueCard(
-                        state: LumiReserveViewState(summary: appState.equippedReserve)
-                    )
-
                     Spacer(minLength: 0)
                 } else {
-                    queueSectionHeader(
-                        title: "Personal queue",
-                        subtitle: "\(appState.queueMessages.count) \(appState.queueMessages.count == 1 ? "Lumi" : "Lumis") in your order."
-                    )
-
-                    MessageCardView(message: appState.queueMessages.first)
-
-                    Text("Drag to reorder. The top item sends first.")
+                    Text("Drag to reorder. Use the menu for queue actions.")
                         .font(LumiTheme.Typography.body(14))
                         .foregroundStyle(LumiTheme.Colors.ink.opacity(0.66))
 
                     List {
-                        ForEach(Array(appState.queueMessages.enumerated()), id: \.element.id) { index, message in
-                            QueueMessageRowView(
+                        ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
+                            QueueActionRow(
                                 index: index,
                                 message: message,
-                                onEdit: {
-                                    appState.openLumiComposer(editing: message)
-                                }
+                                section: section,
+                                isDisabled: appState.isQueueMutating,
+                                onMakeNext: { appState.makeUpNext(message.id) },
+                                onMoveToReserve: { appState.moveToReserve(message.id) },
+                                onMoveToUpNext: { appState.moveToUpNext(message.id) },
+                                onImmediateNext: { appState.addAsImmediateNext(message.id) },
+                                onEdit: { appState.openLumiComposer(editing: message, in: section) },
+                                onRemove: { pendingRemoval = message }
                             )
                             .listRowBackground(Color.clear)
                             .listRowSeparator(.hidden)
                         }
-                        .onMove(perform: appState.moveQueueMessages)
-                        .onDelete(perform: appState.deleteQueueMessages)
-
-                        VStack(alignment: .leading, spacing: 10) {
-                            queueSectionHeader(
-                                title: "Lumi Reserve",
-                                subtitle: "Extra Lumis waiting behind your personal queue."
-                            )
-
-                            LumiReserveQueueCard(
-                                state: LumiReserveViewState(summary: appState.equippedReserve)
+                        .onMove { source, destination in
+                            appState.reorderMessages(
+                                in: section,
+                                from: source,
+                                to: destination
                             )
                         }
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
-                        .listRowInsets(EdgeInsets(top: 14, leading: 0, bottom: 8, trailing: 0))
                     }
                     .listStyle(.plain)
                     .scrollContentBackground(.hidden)
                     .environment(\.editMode, $editMode)
-                    .frame(maxHeight: .infinity)
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .padding(20)
+
+            if appState.isQueueMutating {
+                ProgressView("Saving order…")
+                    .padding(16)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+                    .accessibilityLabel("Saving queue order")
+            }
         }
-        .onAppear {
-            editMode = .active
+        .onAppear { editMode = .active }
+        .task {
+            await appState.refreshQueueSnapshot()
+        }
+        .alert(
+            "Remove this Lumi?",
+            isPresented: Binding(
+                get: { pendingRemoval != nil },
+                set: { if !$0 { pendingRemoval = nil } }
+            ),
+            presenting: pendingRemoval
+        ) { message in
+            Button("Remove", role: .destructive) {
+                appState.removeQueuedMessage(message.id)
+                pendingRemoval = nil
+            }
+            Button("Cancel", role: .cancel) {
+                pendingRemoval = nil
+            }
+        } message: { _ in
+            Text("This removes the Lumi from the necklace sequence.")
         }
     }
 
-    private var queueHeader: some View {
+    private var header: some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Edit queue")
+                Text(title)
                     .font(LumiTheme.Typography.display(34))
                     .foregroundStyle(LumiTheme.Colors.ink)
 
-                Text("This is the order your messages will reveal on the necklace.")
+                Text(explanation)
                     .font(LumiTheme.Typography.body(15))
                     .foregroundStyle(LumiTheme.Colors.ink.opacity(0.72))
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Spacer(minLength: 12)
@@ -289,279 +889,162 @@ struct QueueEditorView: View {
             .buttonStyle(SecondaryButtonStyle())
             .frame(maxWidth: 76)
         }
-    }
-
-    private func queueSectionHeader(title: String, subtitle: String) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(title)
-                .font(LumiTheme.Typography.headline(19))
-                .foregroundStyle(LumiTheme.Colors.ink)
-
-            Text(subtitle)
-                .font(LumiTheme.Typography.body(13))
-                .foregroundStyle(LumiTheme.Colors.ink.opacity(0.62))
-                .fixedSize(horizontal: false, vertical: true)
-        }
         .accessibilityElement(children: .combine)
     }
 }
 
-struct LumiReserveQueueCard: View {
-    let state: LumiReserveViewState
-    var onOpen: (() -> Void)? = nil
+private struct QueueErrorBanner: View {
+    let message: String
+    let onDismiss: () -> Void
 
-    @ViewBuilder
     var body: some View {
-        if let onOpen {
-            Button(action: onOpen) {
-                content(showsDisclosure: true)
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+            Text(message)
+                .font(LumiTheme.Typography.body(13))
+            Spacer()
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
             }
-            .buttonStyle(.plain)
-            .accessibilityHint("Opens the queue editor")
-        } else {
-            content(showsDisclosure: false)
+            .accessibilityLabel("Dismiss error")
         }
-    }
-
-    private func content(showsDisclosure: Bool) -> some View {
-        HStack(spacing: 14) {
-            reserveQueueMark
-
-            VStack(alignment: .leading, spacing: 5) {
-                Text(state.title)
-                    .font(LumiTheme.Typography.headline(17))
-                    .foregroundStyle(LumiTheme.Colors.ink)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Text(state.detail)
-                    .font(LumiTheme.Typography.body(14))
-                    .foregroundStyle(LumiTheme.Colors.ink.opacity(0.66))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Spacer(minLength: 4)
-
-            if case .loading = state {
-                ProgressView()
-                    .tint(LumiTheme.Colors.rose)
-                    .accessibilityHidden(true)
-            } else if showsDisclosure {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(LumiTheme.Colors.ink.opacity(0.42))
-                    .accessibilityHidden(true)
-            }
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.white.opacity(0.88))
-        .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(LumiTheme.Colors.cardStroke, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .shadow(color: LumiTheme.Colors.rose.opacity(0.08), radius: 12, y: 6)
-        .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(state.accessibilityLabel)
-    }
-
-    private var reserveQueueMark: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .fill(LumiTheme.Colors.roseSoft.opacity(0.72))
-                .frame(width: 48, height: 48)
-
-            VStack(spacing: 3) {
-                ForEach(0..<3, id: \.self) { index in
-                    Capsule()
-                        .fill(index == 0 ? LumiTheme.Colors.rose : LumiTheme.Colors.gold.opacity(0.65))
-                        .frame(width: CGFloat(22 - index * 3), height: 4)
-                }
-            }
-
-            Image(systemName: "sparkle")
-                .font(.system(size: 10, weight: .bold))
-                .foregroundStyle(LumiTheme.Colors.rose)
-                .offset(x: 17, y: -17)
-        }
-        .accessibilityHidden(true)
+        .foregroundStyle(.red)
+        .padding(12)
+        .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
     }
 }
 
-private struct QueueMessageRowView: View {
+private struct QueueActionRow: View {
     let index: Int
     let message: Message
+    let section: QueueSection
+    let isDisabled: Bool
+    let onMakeNext: () -> Void
+    let onMoveToReserve: () -> Void
+    let onMoveToUpNext: () -> Void
+    let onImmediateNext: () -> Void
     let onEdit: () -> Void
+    let onRemove: () -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            ZStack {
-                Circle()
-                    .fill(orderTint.opacity(0.18))
-                    .frame(width: 36, height: 36)
+            queueStylePreview
 
-                Text("\(index + 1)")
-                    .font(LumiTheme.Typography.body(14).weight(.semibold))
-                    .foregroundStyle(orderTint)
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text(message.text)
-                    .font(LumiTheme.Typography.body(16))
-                    .foregroundStyle(LumiTheme.Colors.ink)
-                    .lineLimit(3)
-
-                if index == 0 {
-                    Text("Sends first")
-                        .font(LumiTheme.Typography.body(11).weight(.semibold))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(LumiTheme.Colors.sand.opacity(0.35))
-                        .foregroundStyle(LumiTheme.Colors.ink.opacity(0.75))
-                        .clipShape(Capsule())
-                }
-            }
-
-            Spacer(minLength: 8)
-
-            Button(action: onEdit) {
-                Image(systemName: "pencil")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(LumiTheme.Colors.rose)
-                    .frame(width: 30, height: 30)
-                    .background(Color.white.opacity(0.9))
-                    .clipShape(Circle())
-                    .overlay(
-                        Circle()
-                            .stroke(LumiTheme.Colors.cardStroke, lineWidth: 1)
+            VStack(alignment: .leading, spacing: 5) {
+                Text("\(index + 1). \(message.text)")
+                    .font(
+                        .system(
+                            size: 16,
+                            design: LumiTextLayoutResolver.fontDesign(for: message.experience.fontKey)
+                        )
                     )
+                    .foregroundStyle(LumiTheme.Colors.ink)
+                    .multilineTextAlignment(
+                        LumiTextLayoutResolver.textAlignment(for: message.experience.textAlignment)
+                    )
+                    .lineLimit(3)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: LumiTextLayoutResolver.horizontalAlignment(
+                            for: message.experience.textAlignment
+                        )
+                    )
+
+                Text(
+                    "\(message.experience.textSize.rawValue.capitalized) · "
+                    + "\(message.experience.textAlignment.rawValue.capitalized) · "
+                    + message.experience.textPosition.rawValue.capitalized
+                )
+                .font(.caption)
+                .foregroundStyle(LumiTheme.Colors.ink.opacity(0.56))
+
+                LumiAttachmentBadge(attachment: message.attachment)
             }
-            .buttonStyle(.plain)
+
+            Menu {
+                Button("Edit Lumi", systemImage: "pencil", action: onEdit)
+                if section == .upNext {
+                    Button("Make next", systemImage: "arrow.up.to.line", action: onMakeNext)
+                    Button("Move to Reserve", systemImage: "tray.and.arrow.down", action: onMoveToReserve)
+                } else {
+                    Button("Move to Up Next", systemImage: "arrow.up.forward", action: onMoveToUpNext)
+                    Button("Add as immediate next", systemImage: "arrow.up.to.line", action: onImmediateNext)
+                }
+                Divider()
+                Button("Remove", systemImage: "trash", role: .destructive, action: onRemove)
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .font(.system(size: 20, weight: .semibold))
+                    .frame(width: 36, height: 36)
+            }
+            .disabled(isDisabled)
+            .accessibilityLabel("Actions for \(message.text)")
         }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color.white.opacity(0.92))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(LumiTheme.Colors.cardStroke, lineWidth: 1)
-        )
+        .padding(.vertical, 8)
+        .accessibilityElement(children: .contain)
     }
 
-    private var orderTint: Color {
-        switch index {
-        case 0:
-            return LumiTheme.Colors.rose
-        case 1:
-            return Color(red: 0.65, green: 0.52, blue: 0.84)
-        default:
-            return LumiTheme.Colors.gold
-        }
+    private var queueStylePreview: some View {
+        Text("Aa")
+            .font(
+                .system(
+                    size: message.experience.textSize == .large ? 18 : 14,
+                    design: LumiTextLayoutResolver.fontDesign(for: message.experience.fontKey)
+                )
+            )
+            .foregroundStyle(
+                LumiBackgroundResolver.foreground(for: message.experience.backgroundKey)
+            )
+            .frame(
+                maxWidth: .infinity,
+                alignment: LumiTextLayoutResolver.horizontalAlignment(
+                    for: message.experience.textAlignment
+                )
+            )
+            .padding(7)
+            .frame(
+                width: 58,
+                height: 70,
+                alignment: LumiTextLayoutResolver.verticalAlignment(
+                    for: message.experience.textPosition
+                )
+            )
+            .background(
+                LumiBackgroundResolver.background(for: message.experience.backgroundKey)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(alignment: .topLeading) {
+                Text("\(index + 1)")
+                    .font(.caption2.bold())
+                    .foregroundStyle(.white)
+                    .padding(4)
+                    .background(.black.opacity(0.32), in: Circle())
+                    .offset(x: -5, y: -5)
+            }
+            .accessibilityHidden(true)
     }
 }
 
 struct RecipientRevealView: View {
     @EnvironmentObject private var appState: AppState
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        ZStack {
-            LumiTheme.Colors.pageBackground.ignoresSafeArea()
-            FloatingHeartsBackground()
-
-            VStack(spacing: 16) {
-                switch appState.recipientRevealState {
-                case .awaitingInvocation:
-                    Image(systemName: "heart.circle")
-                        .font(.system(size: 58, weight: .light))
-                        .foregroundStyle(LumiTheme.Colors.rose)
-                    Text("Tap your Lumi necklace to begin.")
-                        .font(LumiTheme.Typography.display(34))
-                        .multilineTextAlignment(.center)
-                        .foregroundStyle(LumiTheme.Colors.ink)
-                case .resolving:
-                    ProgressView()
-                        .tint(LumiTheme.Colors.rose)
-                    Text("Opening your Lumi...")
-                        .font(LumiTheme.Typography.headline(24))
-                        .multilineTextAlignment(.center)
-                        .foregroundStyle(LumiTheme.Colors.ink)
-                case let .waiting(lumi):
-                    recipientHeader(title: "Something was left here for you.", necklaceName: lumi.necklaceDisplayName)
-                    HoldToRevealButton {
-                        appState.completeRecipientHold(for: lumi)
-                    }
-                case let .revealing(lumi):
-                    recipientHeader(title: "Opening...", necklaceName: lumi.necklaceDisplayName)
-                    heartRevealMotif(for: lumi)
-                        .transition(reduceMotion ? .opacity : .scale.combined(with: .opacity))
-                case let .revealed(lumi, _):
-                    recipientHeader(title: "Your Lumi", necklaceName: lumi.necklaceDisplayName)
-                    Text(lumi.text)
-                        .font(LumiTheme.Typography.display(36))
-                        .multilineTextAlignment(.center)
-                        .foregroundStyle(LumiTheme.Colors.ink)
-                        .lineSpacing(6)
-                        .padding(.horizontal, 12)
-                        .accessibilityLabel("Lumi message. \(lumi.text)")
-                case .empty:
-                    EmptyStateView(
-                        title: "Nothing new is waiting right now.",
-                        subtitle: "Come back again soon.",
-                        systemImage: "moon.stars"
-                    )
-                case .unavailable:
-                    EmptyStateView(
-                        title: "This Lumi isn't available right now.",
-                        subtitle: "",
-                        systemImage: "heart.slash"
-                    )
-                case .error:
-                    EmptyStateView(
-                        title: "We couldn't open your Lumi.",
-                        subtitle: "",
-                        systemImage: "sparkles"
-                    )
-                    Button("Try Again") {
-                        appState.retryRecipientReveal()
-                    }
-                    .buttonStyle(PrimaryButtonStyle())
-                }
+        RecipientRevealPresentationView(
+            revealState: appState.recipientRevealState,
+            retryAction: appState.retryRecipientReveal
+        )
+        .onChange(of: appState.recipientRevealState) { _, state in
+            if case let .waiting(lumi) = state {
+                appState.completeRecipientHold(for: lumi)
             }
-            .padding(20)
         }
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: appState.recipientRevealState)
+        .onAppear {
+            if case let .waiting(lumi) = appState.recipientRevealState {
+                appState.completeRecipientHold(for: lumi)
+            }
+        }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .navigationBar)
-    }
-
-    private func recipientHeader(title: String, necklaceName: String) -> some View {
-        VStack(spacing: 10) {
-            Text(necklaceName)
-                .font(LumiTheme.Typography.body(14).weight(.medium))
-                .foregroundStyle(LumiTheme.Colors.rose)
-            Text(title)
-                .font(LumiTheme.Typography.display(36))
-                .multilineTextAlignment(.center)
-                .foregroundStyle(LumiTheme.Colors.ink)
-        }
-        .accessibilityElement(children: .combine)
-    }
-
-    private func heartRevealMotif(for lumi: ResolvedLumi) -> some View {
-        Image(systemName: lumi.presentation.theme == .champagne ? "sparkles" : "heart.fill")
-            .font(.system(size: 74, weight: .regular))
-            .foregroundStyle(LumiTheme.Colors.rose)
-            .padding(36)
-            .background(LumiTheme.Colors.glassTop.opacity(0.92), in: Circle())
-            .overlay(
-                Circle()
-                    .stroke(LumiTheme.Colors.cardStroke, lineWidth: 1)
-            )
-            .shadow(color: LumiTheme.Colors.rose.opacity(0.14), radius: 14, y: 8)
-            .accessibilityHidden(true)
     }
 }
 

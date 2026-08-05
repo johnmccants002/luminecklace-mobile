@@ -2,7 +2,6 @@ import SwiftUI
 
 struct ExploreView: View {
     @StateObject private var viewModel: ExploreViewModel
-    @State private var personalizedTemplate: MessageTemplate?
 
     init(appState: AppState) {
         _viewModel = StateObject(wrappedValue: ExploreViewModel(appState: appState))
@@ -46,13 +45,10 @@ struct ExploreView: View {
         .task(id: viewModel.searchText) {
             await viewModel.searchChanged()
         }
-        .sheet(item: $personalizedTemplate) { template in
-            PersonalizeLibraryMessageSheet(template: template, viewModel: viewModel)
-        }
         .alert(
             "Something went wrong",
             isPresented: Binding(
-                get: { personalizedTemplate == nil && viewModel.actionError != nil },
+                get: { viewModel.actionError != nil },
                 set: { if !$0 { viewModel.clearActionError() } }
             ),
             actions: {
@@ -69,7 +65,7 @@ struct ExploreView: View {
             Text("A little inspiration")
                 .font(LumiTheme.Typography.display(34))
                 .foregroundStyle(LumiTheme.Colors.ink)
-            Text("Find a thought that feels like yours, then send it as-is or make it more personal.")
+            Text("Find the right words, then choose whether they belong in Up Next or Reserve.")
                 .font(LumiTheme.Typography.body(15))
                 .foregroundStyle(LumiTheme.Colors.ink.opacity(0.72))
                 .fixedSize(horizontal: false, vertical: true)
@@ -196,12 +192,11 @@ struct ExploreView: View {
                     message: message,
                     isEnqueuing: viewModel.enqueuingMessageIDs.contains(message.id),
                     canEnqueue: viewModel.canEnqueue,
-                    onAdd: {
-                        Task { await viewModel.enqueue(message) }
+                    onAddToUpNext: {
+                        Task { await viewModel.enqueue(message, destination: .upNext) }
                     },
-                    onPersonalize: {
-                        viewModel.clearActionError()
-                        personalizedTemplate = message
+                    onAddToReserve: {
+                        Task { await viewModel.enqueue(message, destination: .reserve) }
                     }
                 )
                 .onAppear {
@@ -246,8 +241,8 @@ private struct MessageLibraryCard: View {
     let message: MessageTemplate
     let isEnqueuing: Bool
     let canEnqueue: Bool
-    let onAdd: () -> Void
-    let onPersonalize: () -> Void
+    let onAddToUpNext: () -> Void
+    let onAddToReserve: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -260,7 +255,10 @@ private struct MessageLibraryCard: View {
                     .background(LumiTheme.Colors.roseSoft, in: Capsule())
                 Spacer()
                 if message.isQueued == true {
-                    Label("In queue", systemImage: "checkmark.circle.fill")
+                    Label(
+                        message.queuedSection.map { "In \($0.displayName)" } ?? "In queue",
+                        systemImage: "checkmark.circle.fill"
+                    )
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(LumiTheme.Colors.ink.opacity(0.62))
                 } else if message.wasRecentlyRevealed == true {
@@ -277,123 +275,31 @@ private struct MessageLibraryCard: View {
                 .accessibilityLabel("Suggested message: \(message.text)")
 
             HStack(spacing: 10) {
-                Button(action: onPersonalize) {
-                    Text("Personalize")
+                Button(action: onAddToReserve) {
+                    Text("Add to Reserve")
                         .frame(maxWidth: .infinity, minHeight: 44)
                 }
                 .buttonStyle(SecondaryButtonStyle())
                 .disabled(!canEnqueue || isEnqueuing)
-                .accessibilityHint("Edit this suggestion before adding it")
+                .accessibilityHint("Adds this suggestion behind Up Next")
 
-                Button(action: onAdd) {
+                Button(action: onAddToUpNext) {
                     Group {
                         if isEnqueuing {
                             ProgressView()
                                 .tint(.white)
                                 .accessibilityLabel("Adding to queue")
                         } else {
-                            Text("Add to Queue")
+                            Text("Add to Up Next")
                         }
                     }
                     .frame(maxWidth: .infinity, minHeight: 44)
                 }
                 .buttonStyle(PrimaryButtonStyle())
                 .disabled(!canEnqueue || isEnqueuing)
-                .accessibilityHint("Adds this suggestion to the selected necklace")
+                .accessibilityHint("Adds this suggestion to the end of Up Next")
             }
         }
         .glassCard()
-    }
-}
-
-private struct PersonalizeLibraryMessageSheet: View {
-    let template: MessageTemplate
-    @ObservedObject var viewModel: ExploreViewModel
-    @Environment(\.dismiss) private var dismiss
-    @State private var text: String
-
-    init(template: MessageTemplate, viewModel: ExploreViewModel) {
-        self.template = template
-        self.viewModel = viewModel
-        _text = State(initialValue: template.text)
-    }
-
-    private var trimmedText: String {
-        text.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private var isValid: Bool {
-        !trimmedText.isEmpty && text.count <= 500
-    }
-
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                LumiTheme.Colors.pageBackground.ignoresSafeArea()
-                VStack(alignment: .leading, spacing: 14) {
-                    Text("Make it sound like you")
-                        .font(LumiTheme.Typography.display(30))
-                        .foregroundStyle(LumiTheme.Colors.ink)
-                    TextEditor(text: $text)
-                        .font(.body)
-                        .scrollContentBackground(.hidden)
-                        .padding(12)
-                        .frame(minHeight: 190)
-                        .background(Color.white.opacity(0.84))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                                .stroke(text.count > 500 ? Color.red : LumiTheme.Colors.cardStroke)
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                        .accessibilityLabel("Personalized Lumi message")
-
-                    HStack {
-                        Text(text.count > 500 ? "Keep your Lumi to 500 characters." : "Your words will be saved as a snapshot.")
-                            .font(.caption)
-                            .foregroundStyle(text.count > 500 ? Color.red : LumiTheme.Colors.ink.opacity(0.62))
-                        Spacer()
-                        Text("\(text.count)/500")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(text.count > 500 ? Color.red : LumiTheme.Colors.ink.opacity(0.62))
-                            .accessibilityLabel("\(text.count) of 500 characters")
-                    }
-                    if let error = viewModel.actionError {
-                        Label(error, systemImage: "exclamationmark.circle.fill")
-                            .font(.footnote)
-                            .foregroundStyle(.red)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .accessibilityLabel("Error. \(error)")
-                    }
-                    Spacer()
-                    Button {
-                        Task {
-                            if await viewModel.enqueue(template, personalizedText: text) {
-                                dismiss()
-                            }
-                        }
-                    } label: {
-                        if viewModel.enqueuingMessageIDs.contains(template.id) {
-                            ProgressView()
-                                .tint(.white)
-                                .frame(maxWidth: .infinity)
-                                .accessibilityLabel("Adding to queue")
-                        } else {
-                            Text("Add to Queue")
-                        }
-                    }
-                    .buttonStyle(PrimaryButtonStyle())
-                    .disabled(!isValid || viewModel.enqueuingMessageIDs.contains(template.id))
-                }
-                .padding(20)
-            }
-            .navigationTitle("Personalize")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-            }
-        }
-        .interactiveDismissDisabled(viewModel.enqueuingMessageIDs.contains(template.id))
     }
 }

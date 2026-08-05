@@ -30,11 +30,15 @@ final class HomeViewModel: ObservableObject {
     }
 
     var message: Message? {
-        appState.currentMessage
+        appState.queueSnapshot?.current
     }
 
     var queuedMessages: [Message] {
-        appState.queueMessages
+        appState.queueSnapshot?.upNext ?? []
+    }
+
+    var reserveMessages: [Message] {
+        appState.queueSnapshot?.reserve ?? []
     }
 
     var reserve: LumiReserveSummary? {
@@ -84,12 +88,12 @@ final class HomeViewModel: ObservableObject {
         )
     }
 
-    func openQueueEditor() {
-        appState.openQueueEditor()
+    func openUpNextEditor() {
+        appState.openUpNextEditor()
     }
 
     func openReserveEditor() {
-        appState.openQueueEditor()
+        appState.openReserveEditor()
     }
 
     func openLumiComposer() {
@@ -160,7 +164,12 @@ enum HomePreviewFactory {
             sound: LumiPresentationSound(
                 rawValue: message.experience.soundKey.lowercased()
             ),
-            revealPreset: .wordRise
+            revealPreset: .wordRise,
+            background: message.experience.backgroundKey,
+            font: message.experience.fontKey,
+            textSize: message.experience.textSize,
+            textAlignment: message.experience.textAlignment,
+            textPosition: message.experience.textPosition
         )
 
         let lumi = ResolvedLumi(

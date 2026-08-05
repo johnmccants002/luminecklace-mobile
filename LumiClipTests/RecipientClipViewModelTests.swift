@@ -179,6 +179,64 @@ final class RecipientClipViewModelTests: XCTestCase {
         XCTAssertEqual(configuredPresentation.revealPreset, .crossfade)
     }
 
+    func testAppClipDecodesCompleteLayoutAndDefaultsMissingOrUnknownValues() throws {
+        let complete = try JSONDecoder().decode(
+            NecklacePresentation.self,
+            from: Data(
+                #"""
+                {
+                  "background": "midnight",
+                  "font": "rounded",
+                  "textSize": "large",
+                  "textAlignment": "leading",
+                  "textPosition": "bottom"
+                }
+                """#.utf8
+            )
+        )
+        let old = try JSONDecoder().decode(
+            NecklacePresentation.self,
+            from: Data(#"{"theme":"heart","animation":"breathe"}"#.utf8)
+        )
+        let future = try JSONDecoder().decode(
+            NecklacePresentation.self,
+            from: Data(
+                #"""
+                {
+                  "textSize": "huge",
+                  "textAlignment": "justified",
+                  "textPosition": "floating"
+                }
+                """#.utf8
+            )
+        )
+
+        XCTAssertEqual(complete.background, .midnight)
+        XCTAssertEqual(complete.font, .rounded)
+        XCTAssertEqual(complete.textSize, .large)
+        XCTAssertEqual(complete.textAlignment, .leading)
+        XCTAssertEqual(complete.textPosition, .bottom)
+
+        for presentation in [old, future] {
+            XCTAssertEqual(presentation.textSize, .medium)
+            XCTAssertEqual(presentation.textAlignment, .center)
+            XCTAssertEqual(presentation.textPosition, .center)
+        }
+    }
+
+    func testAppClipUsesSharedPlacementAndLongMessagePolicy() {
+        XCTAssertEqual(LumiTextLayoutResolver.horizontalAlignment(for: .leading), .leading)
+        XCTAssertEqual(LumiTextLayoutResolver.horizontalAlignment(for: .center), .center)
+        XCTAssertEqual(LumiTextLayoutResolver.horizontalAlignment(for: .trailing), .trailing)
+        XCTAssertEqual(LumiTextLayoutResolver.verticalAlignment(for: .top), .top)
+        XCTAssertEqual(LumiTextLayoutResolver.verticalAlignment(for: .center), .center)
+        XCTAssertEqual(LumiTextLayoutResolver.verticalAlignment(for: .bottom), .bottom)
+        XCTAssertGreaterThanOrEqual(
+            LumiTextLayoutResolver.effectivePointSize(for: .large, characterCount: 500),
+            29
+        )
+    }
+
     private func makeLumi(
         sessionID: String = "session-1",
         text: String

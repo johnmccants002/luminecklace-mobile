@@ -38,6 +38,10 @@ struct HomeView: View {
         viewModel.recentlyRevealed
     }
 
+    private var reserveItems: [Message] {
+        viewModel.reserveMessages
+    }
+
     var body: some View {
         ZStack {
             background
@@ -59,8 +63,8 @@ struct HomeView: View {
                     sectionHeader(
                         title: "Up next",
                         icon: "sparkles",
-                        actionTitle: upNextItems.isEmpty ? nil : "Edit queue",
-                        action: upNextItems.isEmpty ? nil : { viewModel.openQueueEditor() }
+                        actionTitle: "Edit Up Next",
+                        action: { viewModel.openUpNextEditor() }
                     )
                     .opacity(showSections ? 1 : 0)
                     .offset(y: showSections ? 0 : 12)
@@ -70,16 +74,18 @@ struct HomeView: View {
                         .offset(y: showSections ? 0 : 12)
 
                     sectionHeader(
-                        title: "Lumi Reserve",
+                        title: "Reserve",
                         icon: "sparkles",
-                        actionTitle: "Edit reserve",
+                        actionTitle: "Edit Reserve",
                         action: { viewModel.openReserveEditor() }
                     )
                     .opacity(showSections ? 1 : 0)
                     .offset(y: showSections ? 0 : 12)
 
-                    LumiReserveQueueCard(
-                        state: LumiReserveViewState(summary: viewModel.reserve),
+                    QueueHomeSummaryCard(
+                        messages: reserveItems,
+                        emptyTitle: "Reserve is empty",
+                        emptyDetail: "Add messages here to keep them behind Up Next.",
                         onOpen: { viewModel.openReserveEditor() }
                     )
                     .opacity(showSections ? 1 : 0)
@@ -281,6 +287,8 @@ struct HomeView: View {
                         .lineSpacing(3)
                         .fixedSize(horizontal: false, vertical: true)
 
+                    LumiAttachmentBadge(attachment: viewModel.message?.attachment)
+
                     Divider()
                         .overlay(Color(red: 0.90, green: 0.84, blue: 0.82))
 
@@ -436,10 +444,13 @@ struct HomeView: View {
                                 .foregroundStyle(numberTint(for: index))
                         }
 
-                        Text(message.text)
-                            .font(.system(size: 17, weight: .regular, design: .rounded))
-                            .foregroundStyle(Color(red: 0.18, green: 0.19, blue: 0.31))
-                            .fixedSize(horizontal: false, vertical: true)
+                        VStack(alignment: .leading, spacing: 7) {
+                            Text(message.text)
+                                .font(.system(size: 17, weight: .regular, design: .rounded))
+                                .foregroundStyle(Color(red: 0.18, green: 0.19, blue: 0.31))
+                                .fixedSize(horizontal: false, vertical: true)
+                            LumiAttachmentBadge(attachment: message.attachment)
+                        }
 
                         Spacer(minLength: 0)
 
@@ -519,6 +530,8 @@ struct HomeView: View {
                                     .foregroundStyle(Color(red: 0.18, green: 0.19, blue: 0.31))
                                     .lineLimit(3)
                                     .fixedSize(horizontal: false, vertical: true)
+
+                                LumiAttachmentBadge(attachment: item.attachment)
 
                                 Text(viewModel.revealedSubtitle(for: item.revealedAt))
                                     .font(.system(size: 14, weight: .regular, design: .rounded))
@@ -602,6 +615,54 @@ struct HomeView: View {
         default:
             return Color(red: 0.94, green: 0.67, blue: 0.29)
         }
+    }
+}
+
+private struct QueueHomeSummaryCard: View {
+    let messages: [Message]
+    let emptyTitle: String
+    let emptyDetail: String
+    let onOpen: () -> Void
+
+    var body: some View {
+        Button(action: onOpen) {
+            HStack(spacing: 14) {
+                Image(systemName: messages.isEmpty ? "tray" : "list.number")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(LumiTheme.Colors.rose)
+                    .frame(width: 48, height: 48)
+                    .background(LumiTheme.Colors.roseSoft.opacity(0.72), in: RoundedRectangle(cornerRadius: 13))
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(messages.isEmpty ? emptyTitle : "\(messages.count) \(messages.count == 1 ? "Lumi" : "Lumis") in Reserve")
+                        .font(LumiTheme.Typography.headline(17))
+                        .foregroundStyle(LumiTheme.Colors.ink)
+
+                    Text(messages.first.map { "First in Reserve: \($0.text)" } ?? emptyDetail)
+                        .font(LumiTheme.Typography.body(14))
+                        .foregroundStyle(LumiTheme.Colors.ink.opacity(0.66))
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                }
+
+                Spacer(minLength: 4)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(LumiTheme.Colors.ink.opacity(0.42))
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.white.opacity(0.88))
+            .overlay(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(LumiTheme.Colors.cardStroke, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(messages.isEmpty ? "\(emptyTitle). \(emptyDetail)" : "\(messages.count) messages in Reserve")
+        .accessibilityHint("Opens the Reserve editor")
     }
 }
 

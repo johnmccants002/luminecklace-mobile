@@ -30,7 +30,7 @@ struct RecipientRevealPresentationView: View {
                 content
                     .frame(maxWidth: 480, maxHeight: .infinity)
                     .padding(.horizontal, horizontalPadding(for: geometry.size.width))
-                    .padding(.vertical, 24)
+                    .padding(.vertical, 20)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
@@ -48,6 +48,10 @@ struct RecipientRevealPresentationView: View {
         .onDisappear {
             presentation.cancel()
         }
+        .animation(
+            reduceMotion ? .easeOut(duration: 0.2) : .easeInOut(duration: 0.45),
+            value: isShowingOpening
+        )
     }
 
     @ViewBuilder
@@ -65,10 +69,11 @@ struct RecipientRevealPresentationView: View {
                         lumi: lumi,
                         tokens: presentation.tokens,
                         revealedWordCount: presentation.revealedWordCount,
+                        showsAttachmentAction: presentation.phase == .complete,
                         reduceMotion: reduceMotion,
                         timing: presentation.timing
                     )
-                    .transition(.opacity)
+                    .transition(messageTransition(for: lumi.presentation.textPosition))
                 }
             case .error:
                 terminalContent
@@ -79,15 +84,10 @@ struct RecipientRevealPresentationView: View {
     }
 
     private var backgroundGradient: some View {
-        LinearGradient(
-            colors: [
-                Color(red: 0.30, green: 0.10, blue: 0.18),
-                Color(red: 0.59, green: 0.33, blue: 0.34),
-                Color(red: 0.89, green: 0.78, blue: 0.66),
-                Color(red: 0.96, green: 0.89, blue: 0.73)
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
+        LumiBackgroundResolver.background(
+            for: isShowingOpening
+                ? .heart
+                : presentation.lumi?.presentation.background ?? .heart
         )
     }
 
@@ -143,6 +143,18 @@ struct RecipientRevealPresentationView: View {
 
     private func horizontalPadding(for width: CGFloat) -> CGFloat {
         width < 360 ? 20 : 28
+    }
+
+    private func messageTransition(for position: LumiTextPositionKey) -> AnyTransition {
+        guard !reduceMotion else { return .opacity }
+        switch position {
+        case .top:
+            return .move(edge: .top).combined(with: .opacity)
+        case .center:
+            return .opacity
+        case .bottom:
+            return .move(edge: .bottom).combined(with: .opacity)
+        }
     }
 
     @ViewBuilder
@@ -258,22 +270,109 @@ private struct RecipientMessageView: View {
     let lumi: ResolvedLumi
     let tokens: [RecipientMessageToken]
     let revealedWordCount: Int
+    let showsAttachmentAction: Bool
     let reduceMotion: Bool
     let timing: RecipientRevealTiming
 
+    @Environment(\.openURL) private var openURL
+
     var body: some View {
-        ScrollView {
-            revealedText
-                .font(.system(.largeTitle, design: .serif, weight: .regular))
-                .multilineTextAlignment(.center)
-                .lineSpacing(7)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: 430)
-                .padding(.vertical, 32)
-                .accessibilityLabel("Lumi message. \(lumi.text)")
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(spacing: 22) {
+                    revealedText
+                        .font(
+                            .system(
+                                size: LumiTextLayoutResolver.effectivePointSize(
+                                    for: lumi.presentation.textSize,
+                                    characterCount: lumi.text.count
+                                ),
+                                weight: .regular,
+                                design: LumiTextLayoutResolver.fontDesign(for: lumi.presentation.font)
+                            )
+                        )
+                        .multilineTextAlignment(
+                            LumiTextLayoutResolver.textAlignment(for: lumi.presentation.textAlignment)
+                        )
+                        .lineSpacing(7)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(
+                            maxWidth: 430,
+                            alignment: LumiTextLayoutResolver.horizontalAlignment(
+                                for: lumi.presentation.textAlignment
+                            )
+                        )
+                        .frame(
+                            maxWidth: .infinity,
+                            minHeight: max(
+                                0,
+                                geometry.size.height
+                                    - (showsAttachmentAction && supportedAttachmentURL != nil ? 150 : 64)
+                            ),
+                            alignment: LumiTextLayoutResolver.verticalAlignment(
+                                for: lumi.presentation.textPosition
+                            )
+                        )
+                        .padding(.top, 32)
+                        .accessibilityLabel("Lumi message. \(lumi.text)")
+
+                    if showsAttachmentAction,
+                       let attachment = lumi.attachment,
+                       let destinationURL = attachment.supportedDestinationURL {
+                        Button {
+                            openURL(destinationURL)
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "arrow.up.right.square")
+                                    .font(.system(size: 20, weight: .semibold))
+
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(attachment.safeCallToActionLabel)
+                                        .font(.headline)
+                                    Text("Instagram \(attachment.displayContentKind)")
+                                        .font(.caption)
+                                        .opacity(0.76)
+                                }
+
+                                Spacer(minLength: 8)
+                                Image(systemName: "chevron.right")
+                                    .font(.caption.bold())
+                                    .opacity(0.7)
+                            }
+                            .foregroundStyle(
+                                LumiBackgroundResolver.foreground(for: lumi.presentation.background)
+                            )
+                            .padding(.horizontal, 18)
+                            .padding(.vertical, 14)
+                            .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 18))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 18)
+                                    .stroke(.white.opacity(0.22), lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .frame(maxWidth: 430)
+                        .transition(
+                            reduceMotion
+                                ? .opacity
+                                : .opacity.combined(with: .move(edge: .bottom))
+                        )
+                        .accessibilityLabel(attachment.safeCallToActionLabel)
+                        .accessibilityHint("Opens Instagram or your web browser")
+                    }
+                }
+                .padding(.bottom, 30)
+            }
+            .scrollIndicators(.hidden)
+            .defaultScrollAnchor(
+                LumiTextLayoutResolver.scrollAnchor(for: lumi.presentation.textPosition)
+            )
         }
-        .scrollIndicators(.hidden)
-        .defaultScrollAnchor(.center)
+        .animation(.easeOut(duration: reduceMotion ? 0.25 : 0.35), value: showsAttachmentAction)
+    }
+
+    private var supportedAttachmentURL: URL? {
+        lumi.attachment?.supportedDestinationURL
     }
 
     private var revealedText: Text {
@@ -284,7 +383,10 @@ private struct RecipientMessageView: View {
                 && !isVisible
 
             let tokenText = Text(verbatim: token.text)
-                .foregroundColor(.white.opacity(isVisible ? 1 : 0))
+                .foregroundColor(
+                    LumiBackgroundResolver.foreground(for: lumi.presentation.background)
+                        .opacity(isVisible ? 1 : 0)
+                )
                 .baselineOffset(shouldRise ? -timing.wordRise : 0)
             return Text("\(result)\(tokenText)")
         }
