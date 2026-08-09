@@ -122,3 +122,50 @@ The repository's build settings use the team-prefix-expanded Keychain group. The
 Attachment data is optional throughout sender queues, recently revealed history, full-app recipient resolution, and App Clip resolution. Missing, malformed, unknown-provider, and future content-kind attachments never prevent the Lumi text from decoding. Only a validated external Instagram HTTPS attachment produces an action.
 
 Sender networking redacts authentication bodies, all Lumi-write bodies, and all Lumi-write response bodies. The Share Extension does not log access tokens, URLs, message text, or raw private response content.
+
+## iOS push notifications
+
+Push notifications are implemented only in the signed-in full application (`luminecklace.luminecklace`). The recipient App Clip remains unauthenticated and never asks for notification permission. The Share Extension does not register with APNs or receive notification capabilities.
+
+The app explains the benefit after a sender reaches the home experience and calls Apple’s authorization prompt only after the sender chooses **Turn On Notifications**. A **Not Now** choice is retained locally and is not shown on every launch. Settings always shows the authoritative iOS permission state and provides account controls for reveals, reactions, and written responses. Notification payloads contain identifiers and lock-screen-safe copy only; full Lumi and written-response text are fetched after the app opens.
+
+### Capability and provisioning
+
+1. In Apple Developer Certificates, Identifiers & Profiles, open the explicit App ID for `luminecklace.luminecklace` and enable **Push Notifications**.
+2. Create or update the APNs key used by the backend and restrict its operational access according to the deployment environment. Do not place the `.p8` key in this repository or the app bundle.
+3. Regenerate development, Ad Hoc, and App Store provisioning profiles for the full-app App ID after enabling Push Notifications.
+4. In Xcode, confirm the `luminecklace` target shows the Push Notifications capability and retains Associated Domains and Keychain Sharing.
+5. Leave the `lumiclip` and `LumiShareExtension` App IDs, entitlements, and profiles unchanged.
+
+The checked-in full-app entitlement uses `$(APS_ENVIRONMENT)`. Debug sets it to `development`; Release sets it to `production`. The same build value is expanded into the generated Info.plist, where the client maps `development` to `sandbox` and `production` to `production`. Because both the signed entitlement and runtime value come from one configuration setting, they cannot drift without an explicit build-setting override. This avoids relying on `#if DEBUG` and keeps TestFlight/App Store tokens in the production APNs environment. Tests inject an environment provider rather than depending on signing metadata.
+
+### Backend contracts
+
+All routes require the existing bearer token:
+
+```text
+PUT    /api/push/devices
+DELETE /api/push/devices
+GET    /api/push/preferences
+PATCH  /api/push/preferences
+```
+
+Registration sends the lower-case hexadecimal device token, APNs environment, `luminecklace.luminecklace`, app version, and general device model. Disable sends `deviceToken`, `environment`, and `bundleId` in its JSON body. The app never logs the token, bearer credential, or private notification payload identifiers.
+
+The app does not maintain an unread-count model or send client-generated badge counts. It conservatively clears any existing badge after a notification opens sender home.
+
+### Physical-device verification
+
+Simulator push behavior does not replace device verification. On a development-signed iPhone:
+
+1. Sign in, reach sender home, confirm the Lumi explanation appears, and choose **Turn On Notifications**.
+2. Confirm Apple’s permission sheet appears only after that choice and the backend stores a `sandbox` token.
+3. Reveal a Lumi through the App Clip, react, and submit a written response; confirm each produces owner-safe notification copy.
+4. Tap each notification and confirm the app refreshes data, selects the owned necklace, and shows recently revealed activity. An unknown necklace must fall back safely.
+5. Receive a push while the app is foregrounded; confirm banner and sound presentation, refreshed sender data, and no forced navigation. While an in-app recipient reveal is active, confirm the banner is suppressed so the reveal is not interrupted.
+6. Deny permission and confirm Settings shows **Disabled in iOS Settings** with an **Open iOS Settings** action.
+7. Toggle each account preference and confirm the backend persists it and failed writes visibly roll back.
+8. Sign out and confirm device deactivation occurs before the local bearer token is removed. Sign in as another account and confirm the installation is upserted to that user.
+9. Install a TestFlight build and confirm registration uses `production` and production APNs delivery succeeds.
+
+`BadDeviceToken` most commonly means the backend sent a sandbox token to production APNs (or the reverse), used a token for a different topic/bundle ID, or used credentials that do not authorize `luminecklace.luminecklace`. Also verify the current provisioning profile contains `aps-environment`, the APNs key/team/key IDs match the backend configuration, and the app has supplied a fresh token after reinstall or signing changes.

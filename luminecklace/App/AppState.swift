@@ -19,11 +19,14 @@ final class AppState: ObservableObject {
     @Published var showRetapHint = false
     @Published var settings = UserSettings()
     @Published var recipientRevealState: RecipientRevealState = .awaitingInvocation
+    @Published var recipientFeedbackState: RecipientFeedbackState = .empty
     @Published var lastBootstrapError: String?
+    @Published private(set) var notificationHomeFocusId: UUID?
 
-    let authService = AuthService()
+    let authService: AuthenticationServicing
     let senderService = SenderService()
-    let tapResolutionService = TapResolutionService()
+    let tapResolutionService: RecipientTapServicing
+    let pushNotificationManager: PushNotificationManager
     let soundManager = SoundManager()
     let hapticsManager = HapticsManager()
 
@@ -32,13 +35,44 @@ final class AppState: ObservableObject {
     private var currentRecipientToken: String?
     private var recipientResolutionTask: Task<Void, Never>?
     private var revealConfirmationTask: Task<Void, Never>?
+    private var recipientReactionTask: Task<Void, Never>?
+    private var recipientResponseTask: Task<Void, Never>?
     private var isRefreshingSenderData = false
     private var confirmationSessionIDs: Set<String> = []
+    private var recipientFeedbackSessionID: String?
     private let lastTagIdKey = "lumi_last_tag_id"
     private let queueCachePrefix = "lumi_queue_cache_"
     private var composerEditingMessageID: String?
     private var composerEditingSection: QueueSection?
     private var composerReturnRoute: RootRoute = .senderHome
+    private let notificationNavigationService: NotificationNavigationServicing
+
+    init(
+        tapResolutionService: RecipientTapServicing = TapResolutionService(),
+        authService: AuthenticationServicing? = nil,
+        pushNotificationManager: PushNotificationManager? = nil,
+        notificationNavigationService: NotificationNavigationServicing? = nil
+    ) {
+        let resolvedPushManager = pushNotificationManager ?? PushNotificationManager()
+        self.tapResolutionService = tapResolutionService
+        self.authService = authService ?? AuthService()
+        self.pushNotificationManager = resolvedPushManager
+        self.notificationNavigationService = notificationNavigationService ?? SenderService()
+
+        resolvedPushManager.foregroundEventHandler = { [weak self] _ in
+            Task { @MainActor [weak self] in
+                await self?.refreshSenderDataAfterForegroundNotification()
+            }
+        }
+        resolvedPushManager.shouldPresentForegroundNotification = { [weak self] in
+            self?.route != .recipientReveal
+        }
+        resolvedPushManager.notificationResponseHandler = { [weak self] in
+            Task { @MainActor [weak self] in
+                await self?.consumePendingNotificationDestinationIfPossible()
+            }
+        }
+    }
 
     // No actor-isolated cleanup is required here. Keeping teardown nonisolated
     // also lets short-lived AppState instances be released safely in tests.
@@ -121,9 +155,11 @@ final class AppState: ObservableObject {
 
         do {
             user = try await authService.me()
+            pushNotificationManager.updateAuthenticatedUser(id: user?.id)
             await bootstrapSenderFlowAfterAuth()
         } catch APIError.unauthorized {
             authService.clearLocalSession()
+            pushNotificationManager.updateAuthenticatedUser(id: nil)
             route = .auth
         } catch {
             route = .auth
@@ -132,6 +168,7 @@ final class AppState: ObservableObject {
 
     func completeAuth(with result: AuthResult) {
         user = result.user
+        pushNotificationManager.updateAuthenticatedUser(id: result.user.id)
         Task { await bootstrapSenderFlowAfterAuth() }
     }
 
@@ -164,8 +201,13 @@ final class AppState: ObservableObject {
             }
 
             routeAfterNecklaceSelection()
+            await consumePendingNotificationDestinationIfPossible()
+            await pushNotificationManager.considerContextualPrompt(
+                isRecipientExperienceActive: false
+            )
         } catch APIError.unauthorized {
             authService.clearLocalSession()
+            pushNotificationManager.updateAuthenticatedUser(id: nil)
             route = .auth
         } catch {
             lastBootstrapError = error.localizedDescription
@@ -203,6 +245,8 @@ final class AppState: ObservableObject {
             syncQueueState(from: equipped)
         } catch APIError.unauthorized {
             authService.clearLocalSession()
+            user = nil
+            pushNotificationManager.updateAuthenticatedUser(id: nil)
             route = .auth
         } catch {
             // Keep the last successful sender snapshot during transient refresh failures.
@@ -352,11 +396,14 @@ final class AppState: ObservableObject {
         applyCreationResult(result, destination: destination, necklaceId: necklaceId)
     }
 
-    func signOut() {
-        Task {
-            try? await authService.signOut()
+    func signOut() async {
+        await pushNotificationManager.disableCurrentDevice()
+        do {
+            try await authService.signOut()
+        } catch {
+            authService.clearLocalSession()
         }
-
+        pushNotificationManager.clearAuthenticatedState()
         route = .auth
         user = nil
         queueSnapshot = nil
@@ -370,13 +417,86 @@ final class AppState: ObservableObject {
         settings = UserSettings()
         lastBootstrapError = nil
         recipientRevealState = .awaitingInvocation
+        resetRecipientFeedbackState(for: nil)
         didReceiveTapLink = false
         currentRecipientToken = nil
         confirmationSessionIDs = []
         recipientResolutionTask?.cancel()
         revealConfirmationTask?.cancel()
+        recipientReactionTask?.cancel()
+        recipientResponseTask?.cancel()
         recipientResolutionTask = nil
         revealConfirmationTask = nil
+        recipientReactionTask = nil
+        recipientResponseTask = nil
+    }
+
+    func handleApplicationDidBecomeActive() async {
+        await pushNotificationManager.applicationDidBecomeActive()
+        await consumePendingNotificationDestinationIfPossible()
+        await refreshSenderDataIfNeeded()
+    }
+
+    func consumePendingNotificationDestinationIfPossible() async {
+        guard pushNotificationManager.pendingDestination != nil else { return }
+        guard user != nil, authService.hasAccessToken else {
+            route = .auth
+            return
+        }
+
+        let destination = pushNotificationManager.pendingDestination
+        let refreshed: [NecklaceTag]?
+        do {
+            refreshed = try await notificationNavigationService.listSenderNecklaces()
+        } catch APIError.unauthorized {
+            authService.clearLocalSession()
+            user = nil
+            pushNotificationManager.updateAuthenticatedUser(id: nil)
+            route = .auth
+            return
+        } catch {
+            refreshed = nil
+        }
+
+        if let refreshed {
+            ownedNecklaces = refreshed
+        }
+
+        if let necklaceId = destination?.necklaceId,
+           ownedNecklaces.contains(where: { $0.id == necklaceId }) {
+            setEquipped(necklaceId: necklaceId)
+        } else if let currentId = equippedNecklace?.id,
+                  ownedNecklaces.contains(where: { $0.id == currentId }) {
+            setEquipped(necklaceId: currentId)
+        } else if let first = ownedNecklaces.first {
+            setEquipped(necklaceId: first.id)
+        }
+
+        routeAfterNecklaceSelection()
+        pushNotificationManager.clearPendingDestination()
+        notificationHomeFocusId = UUID()
+        await pushNotificationManager.clearBadge()
+    }
+
+    private func refreshSenderDataAfterForegroundNotification() async {
+        guard user != nil,
+              route != .recipientReveal,
+              !isRefreshingSenderData else { return }
+        isRefreshingSenderData = true
+        defer { isRefreshingSenderData = false }
+
+        do {
+            let selectedId = equippedNecklace?.id
+            let snapshots = try await notificationNavigationService.listSenderNecklaces()
+            ownedNecklaces = snapshots
+            if let selectedId, snapshots.contains(where: { $0.id == selectedId }) {
+                setEquipped(necklaceId: selectedId)
+            } else if let first = snapshots.first {
+                setEquipped(necklaceId: first.id)
+            }
+        } catch {
+            // Preserve the last successful sender data and retry on the next lifecycle event.
+        }
     }
 
     func setEquipped(necklaceId: String) {
@@ -422,6 +542,130 @@ final class AppState: ObservableObject {
         resolveRecipientTap(token: currentRecipientToken, force: true)
     }
 
+    var recipientFeedbackPresentationState: RecipientFeedbackPresentationState {
+        recipientFeedbackState.presentationState(isEnabled: true)
+    }
+
+    func retryRecipientRevealConfirmation() {
+        guard case let .revealed(lumi, confirmationState) = recipientRevealState,
+              confirmationState == .temporarilyFailed else { return }
+        confirmRevealIfNeeded(lumi)
+    }
+
+    func selectRecipientReaction(_ reaction: LumiReaction) {
+        guard recipientReactionTask == nil,
+              !recipientFeedbackState.isFeedbackWindowClosed,
+              recipientFeedbackState.selectedReaction != reaction,
+              let lumi = confirmedRecipientLumi else { return }
+
+        recipientFeedbackState.attemptedReaction = reaction
+        recipientFeedbackState.isSubmittingReaction = true
+        recipientFeedbackState.reactionErrorMessage = nil
+
+        recipientReactionTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let feedback = try await tapResolutionService.setReaction(
+                    revealSessionId: lumi.revealSessionId,
+                    reaction: reaction
+                )
+                guard !Task.isCancelled,
+                      recipientFeedbackSessionID == lumi.revealSessionId else { return }
+                recipientFeedbackState.selectedReaction = feedback.reaction ?? reaction
+                if let responseText = feedback.responseText,
+                   !responseText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    recipientFeedbackState.submittedResponse = responseText
+                    recipientFeedbackState.isResponseLocked = true
+                }
+                recipientFeedbackState.isSubmittingReaction = false
+                recipientFeedbackState.reactionErrorMessage = nil
+                recipientReactionTask = nil
+            } catch {
+                guard !Task.isCancelled,
+                      recipientFeedbackSessionID == lumi.revealSessionId else { return }
+                let feedbackError = error as? RecipientFeedbackServiceError ?? .temporaryFailure
+                recipientFeedbackState.isSubmittingReaction = false
+                recipientFeedbackState.reactionErrorMessage = feedbackError.reactionMessage
+                if feedbackError == .expiredSession {
+                    recipientFeedbackState.isFeedbackWindowClosed = true
+                    recipientFeedbackState.isResponseLocked = true
+                    recipientFeedbackState.responseErrorMessage = feedbackError.responseMessage
+                }
+                recipientReactionTask = nil
+            }
+        }
+    }
+
+    func retryRecipientReaction() {
+        guard let attemptedReaction = recipientFeedbackState.attemptedReaction else { return }
+        selectRecipientReaction(attemptedReaction)
+    }
+
+    func setRecipientResponseComposerPresented(_ isPresented: Bool) {
+        guard !recipientFeedbackState.isSubmittingResponse else { return }
+        if isPresented {
+            guard confirmedRecipientLumi != nil,
+                  !recipientFeedbackState.isResponseLocked,
+                  !recipientFeedbackState.isFeedbackWindowClosed else { return }
+        }
+        recipientFeedbackState.isResponseComposerPresented = isPresented
+    }
+
+    func updateRecipientResponseDraft(_ draft: String) {
+        guard !recipientFeedbackState.isResponseLocked else { return }
+        recipientFeedbackState.draftResponse = String(draft.prefix(250))
+        recipientFeedbackState.responseErrorMessage = nil
+    }
+
+    func submitRecipientResponse() {
+        guard recipientResponseTask == nil,
+              !recipientFeedbackState.isResponseLocked,
+              !recipientFeedbackState.isFeedbackWindowClosed,
+              let lumi = confirmedRecipientLumi else { return }
+
+        let trimmed = recipientFeedbackState.draftResponse
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.count <= 250 else { return }
+
+        recipientFeedbackState.isSubmittingResponse = true
+        recipientFeedbackState.responseErrorMessage = nil
+
+        recipientResponseTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let feedback = try await tapResolutionService.submitResponse(
+                    revealSessionId: lumi.revealSessionId,
+                    text: trimmed
+                )
+                guard !Task.isCancelled,
+                      recipientFeedbackSessionID == lumi.revealSessionId else { return }
+                recipientFeedbackState.selectedReaction = feedback.reaction
+                    ?? recipientFeedbackState.selectedReaction
+                recipientFeedbackState.submittedResponse = feedback.responseText ?? trimmed
+                recipientFeedbackState.draftResponse = feedback.responseText ?? trimmed
+                recipientFeedbackState.isSubmittingResponse = false
+                recipientFeedbackState.isResponseLocked = true
+                recipientFeedbackState.isResponseComposerPresented = false
+                recipientFeedbackState.responseErrorMessage = nil
+                recipientResponseTask = nil
+            } catch {
+                guard !Task.isCancelled,
+                      recipientFeedbackSessionID == lumi.revealSessionId else { return }
+                let feedbackError = error as? RecipientFeedbackServiceError ?? .temporaryFailure
+                recipientFeedbackState.isSubmittingResponse = false
+                recipientFeedbackState.responseErrorMessage = feedbackError.responseMessage
+                if feedbackError == .alreadyResponded || feedbackError == .expiredSession {
+                    recipientFeedbackState.isResponseLocked = true
+                    recipientFeedbackState.isResponseComposerPresented = false
+                }
+                if feedbackError == .expiredSession {
+                    recipientFeedbackState.isFeedbackWindowClosed = true
+                }
+                recipientResponseTask = nil
+            }
+        }
+    }
+
     func completeRecipientHold(for lumi: ResolvedLumi) {
         guard case let .waiting(current) = recipientRevealState,
               current.revealSessionId == lumi.revealSessionId else {
@@ -449,6 +693,7 @@ final class AppState: ObservableObject {
         recipientResolutionTask?.cancel()
         if currentRecipientToken != token {
             revealConfirmationTask?.cancel()
+            resetRecipientFeedbackState(for: nil)
         }
 
         currentRecipientToken = token
@@ -462,10 +707,13 @@ final class AppState: ObservableObject {
 
                 switch resolved {
                 case let .ready(lumi):
+                    resetRecipientFeedbackState(for: lumi.revealSessionId)
                     recipientRevealState = .waiting(lumi)
                 case .empty:
+                    resetRecipientFeedbackState(for: nil)
                     recipientRevealState = .empty
                 case .unavailable:
+                    resetRecipientFeedbackState(for: nil)
                     recipientRevealState = .unavailable
                 }
             } catch APIError.invalidPayload {
@@ -473,6 +721,7 @@ final class AppState: ObservableObject {
                 recipientRevealState = .error(.invalidPayload)
             } catch {
                 guard !Task.isCancelled else { return }
+                resetRecipientFeedbackState(for: nil)
                 recipientRevealState = .error(.network)
             }
         }
@@ -514,9 +763,28 @@ final class AppState: ObservableObject {
                 await reloadQueueAfterConfirmedReveal()
             } catch {
                 guard !Task.isCancelled else { return }
+                confirmationSessionIDs.remove(lumi.revealSessionId)
                 recipientRevealState = .revealed(lumi, confirmationState: .temporarilyFailed)
             }
         }
+    }
+
+    private var confirmedRecipientLumi: ResolvedLumi? {
+        guard case let .revealed(lumi, confirmationState) = recipientRevealState,
+              case .confirmed = confirmationState else {
+            return nil
+        }
+        return lumi
+    }
+
+    private func resetRecipientFeedbackState(for revealSessionID: String?) {
+        guard recipientFeedbackSessionID != revealSessionID else { return }
+        recipientReactionTask?.cancel()
+        recipientResponseTask?.cancel()
+        recipientReactionTask = nil
+        recipientResponseTask = nil
+        recipientFeedbackSessionID = revealSessionID
+        recipientFeedbackState = .empty
     }
 
     private func confirmRevealWithSingleRetry(revealSessionId: String) async throws -> ConfirmRevealResponse {

@@ -47,7 +47,7 @@ struct NoNecklaceView: View {
                     }
 
                     Button("Sign Out") {
-                        appState.signOut()
+                        Task { await appState.signOut() }
                     }
                     .buttonStyle(SecondaryButtonStyle())
                 }
@@ -77,7 +77,7 @@ struct SenderLoadErrorView: View {
                     }
 
                     Button("Sign Out") {
-                        appState.signOut()
+                        Task { await appState.signOut() }
                     }
                     .buttonStyle(SecondaryButtonStyle())
                 }
@@ -1031,7 +1031,14 @@ struct RecipientRevealView: View {
     var body: some View {
         RecipientRevealPresentationView(
             revealState: appState.recipientRevealState,
-            retryAction: appState.retryRecipientReveal
+            retryAction: appState.retryRecipientReveal,
+            retryConfirmationAction: appState.retryRecipientRevealConfirmation,
+            feedbackState: appState.recipientFeedbackPresentationState,
+            selectReaction: appState.selectRecipientReaction,
+            retryReaction: appState.retryRecipientReaction,
+            setResponseComposerPresented: appState.setRecipientResponseComposerPresented,
+            updateResponseDraft: appState.updateRecipientResponseDraft,
+            submitResponse: appState.submitRecipientResponse
         )
         .onChange(of: appState.recipientRevealState) { _, state in
             if case let .waiting(lumi) = state {

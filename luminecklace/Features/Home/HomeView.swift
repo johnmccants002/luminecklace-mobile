@@ -7,27 +7,48 @@ struct HomeView: View {
     @State private var showSections = false
     @State private var showPreviewSheet = false
     @State private var driftPulse = false
+    @State private var selectedRecentLumi: RevealedLumi?
 
     private var heroQuote: String {
-        viewModel.message?.text ?? "Write your first Lumi so her necklace has a moment to hold."
+        viewModel.featuredMessage?.text ?? "Write your first Lumi so her necklace has a moment to hold."
     }
 
     private var heroStatusText: String {
-        viewModel.message == nil ? "Needs your first Lumi" : "Waiting for her"
+        switch viewModel.featuredLumi {
+        case .current:
+            "Waiting for her"
+        case .upNext:
+            "Queued in Up Next"
+        case .reserve:
+            "Saved in Reserve"
+        case .empty:
+            "Needs your first Lumi"
+        }
     }
 
     private var summaryLines: [(systemImage: String, text: String)] {
-        if viewModel.message != nil {
+        switch viewModel.featuredLumi {
+        case .current:
             return [
                 ("lock.fill", "Not revealed yet"),
                 ("clock.fill", "Saved and ready to send")
             ]
+        case let .upNext(_, count):
+            return [
+                ("clock.fill", "Waiting in Up Next"),
+                ("tray.full.fill", count == 1 ? "1 Lumi ready" : "\(count) Lumis ready")
+            ]
+        case let .reserve(_, count):
+            return [
+                ("archivebox.fill", "Waiting in Reserve"),
+                ("tray.full.fill", count == 1 ? "1 Lumi saved" : "\(count) Lumis saved")
+            ]
+        case .empty:
+            return [
+                ("lock.fill", "No Lumi published yet"),
+                ("clock.fill", "Tap Add a Lumi to begin")
+            ]
         }
-
-        return [
-            ("lock.fill", "No Lumi published yet"),
-            ("clock.fill", "Tap Add a Lumi to begin")
-        ]
     }
 
     private var upNextItems: [Message] {
@@ -46,8 +67,9 @@ struct HomeView: View {
         ZStack {
             background
 
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 18) {
+            ScrollViewReader { proxy in
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 18) {
                     header
                         .opacity(showHeader ? 1 : 0)
                         .offset(y: showHeader ? 0 : 10)
@@ -97,6 +119,7 @@ struct HomeView: View {
                         actionTitle: nil,
                         action: nil
                     )
+                    .id("recently-revealed")
                     .opacity(showSections ? 1 : 0)
                     .offset(y: showSections ? 0 : 12)
 
@@ -106,9 +129,16 @@ struct HomeView: View {
 
                     Spacer(minLength: 4)
                 }
-                .padding(.horizontal, 18)
-                .padding(.top, 10)
-                .padding(.bottom, 24)
+                    .padding(.horizontal, 18)
+                    .padding(.top, 10)
+                    .padding(.bottom, 24)
+                }
+                .onChange(of: viewModel.notificationHomeFocusId) { _, focusId in
+                    guard focusId != nil else { return }
+                    withAnimation(.easeInOut) {
+                        proxy.scrollTo("recently-revealed", anchor: .top)
+                    }
+                }
             }
         }
         .preferredColorScheme(.light)
@@ -116,6 +146,11 @@ struct HomeView: View {
         .toolbar(.hidden, for: .navigationBar)
         .fullScreenCover(isPresented: $showPreviewSheet) {
             HomeAppClipPreview(revealState: viewModel.previewRevealState)
+        }
+        .sheet(item: $selectedRecentLumi) { lumi in
+            RevealedLumiFeedbackDetail(lumi: lumi)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
         }
         .onAppear {
             withAnimation(.easeOut(duration: 0.5)) {
@@ -287,7 +322,7 @@ struct HomeView: View {
                         .lineSpacing(3)
                         .fixedSize(horizontal: false, vertical: true)
 
-                    LumiAttachmentBadge(attachment: viewModel.message?.attachment)
+                    LumiAttachmentBadge(attachment: viewModel.featuredMessage?.attachment)
 
                     Divider()
                         .overlay(Color(red: 0.90, green: 0.84, blue: 0.82))
@@ -512,37 +547,7 @@ struct HomeView: View {
             } else {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(recentItems.enumerated()), id: \.element.id) { index, item in
-                        HStack(spacing: 14) {
-                            ZStack {
-                                Circle()
-                                    .fill(recentTint(for: index).opacity(0.14))
-                                    .frame(width: 44, height: 44)
-
-                                Image(systemName: "eye.fill")
-                                    .font(.system(size: 16, weight: .semibold))
-                                    .foregroundStyle(recentTint(for: index))
-                            }
-                            .accessibilityHidden(true)
-
-                            VStack(alignment: .leading, spacing: 5) {
-                                Text(item.text)
-                                    .font(.system(size: 16, weight: .regular, design: .rounded))
-                                    .foregroundStyle(Color(red: 0.18, green: 0.19, blue: 0.31))
-                                    .lineLimit(3)
-                                    .fixedSize(horizontal: false, vertical: true)
-
-                                LumiAttachmentBadge(attachment: item.attachment)
-
-                                Text(viewModel.revealedSubtitle(for: item.revealedAt))
-                                    .font(.system(size: 14, weight: .regular, design: .rounded))
-                                    .foregroundStyle(Color(red: 0.46, green: 0.49, blue: 0.58))
-                            }
-
-                            Spacer(minLength: 0)
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 16)
-                        .accessibilityElement(children: .combine)
+                        recentActivityEntry(item, index: index)
 
                         if index < recentItems.count - 1 {
                             Divider()
@@ -562,6 +567,85 @@ struct HomeView: View {
                 .stroke(Color(red: 0.95, green: 0.88, blue: 0.87), lineWidth: 1)
         )
         .shadow(color: Color(red: 0.95, green: 0.86, blue: 0.84).opacity(0.20), radius: 14, y: 8)
+    }
+
+    @ViewBuilder
+    private func recentActivityEntry(_ item: RevealedLumi, index: Int) -> some View {
+        if item.feedback?.hasVisibleFeedback == true {
+            Button {
+                selectedRecentLumi = item
+            } label: {
+                recentActivityRow(item, index: index, showsDisclosure: true)
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Shows the full reaction and response")
+        } else {
+            recentActivityRow(item, index: index, showsDisclosure: false)
+        }
+    }
+
+    private func recentActivityRow(
+        _ item: RevealedLumi,
+        index: Int,
+        showsDisclosure: Bool
+    ) -> some View {
+        HStack(spacing: 14) {
+            ZStack {
+                Circle()
+                    .fill(recentTint(for: index).opacity(0.14))
+                    .frame(width: 44, height: 44)
+
+                Image(systemName: "eye.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(recentTint(for: index))
+            }
+            .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(item.text)
+                    .font(.system(size: 16, weight: .regular, design: .rounded))
+                    .foregroundStyle(Color(red: 0.18, green: 0.19, blue: 0.31))
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                LumiAttachmentBadge(attachment: item.attachment)
+
+                if let reaction = item.feedback?.reaction {
+                    Text("\(reaction.emoji)  \(reaction.accessibilityLabel)")
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Color(red: 0.72, green: 0.25, blue: 0.39))
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 5)
+                        .background(Color(red: 0.98, green: 0.89, blue: 0.91), in: Capsule())
+                }
+
+                if let response = item.feedback?.responseText,
+                   !response.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text("“\(response)”")
+                        .font(.system(size: 14, weight: .regular, design: .serif))
+                        .foregroundStyle(Color(red: 0.34, green: 0.35, blue: 0.46))
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Text(viewModel.revealedSubtitle(for: item.revealedAt))
+                    .font(.system(size: 14, weight: .regular, design: .rounded))
+                    .foregroundStyle(Color(red: 0.46, green: 0.49, blue: 0.58))
+            }
+
+            Spacer(minLength: 0)
+
+            if showsDisclosure {
+                Image(systemName: "chevron.right")
+                    .font(.caption.bold())
+                    .foregroundStyle(Color(red: 0.46, green: 0.49, blue: 0.58))
+                    .accessibilityHidden(true)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 16)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
     }
 
     private func recentTint(for index: Int) -> Color {
@@ -666,13 +750,104 @@ private struct QueueHomeSummaryCard: View {
     }
 }
 
+private struct RevealedLumiFeedbackDetail: View {
+    let lumi: RevealedLumi
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    detailSection(title: "Original Lumi") {
+                        Text(lumi.text)
+                            .font(.system(.title3, design: .serif))
+                            .foregroundStyle(Color(red: 0.17, green: 0.18, blue: 0.30))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    detailSection(title: "Revealed") {
+                        Text(
+                            lumi.revealedAt.formatted(
+                                .dateTime
+                                    .month(.wide)
+                                    .day()
+                                    .year()
+                                    .hour()
+                                    .minute()
+                            )
+                        )
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                    }
+
+                    if let reaction = lumi.feedback?.reaction {
+                        detailSection(title: "Reaction") {
+                            HStack(spacing: 12) {
+                                Text(reaction.emoji)
+                                    .font(.system(size: 34))
+                                Text(reaction.accessibilityLabel)
+                                    .font(.system(.headline, design: .rounded))
+                            }
+                            .accessibilityElement(children: .combine)
+                        }
+                    }
+
+                    if let response = lumi.feedback?.responseText,
+                       !response.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        detailSection(title: "Written response") {
+                            Text("“\(response)”")
+                                .font(.system(.title3, design: .serif))
+                                .foregroundStyle(Color(red: 0.25, green: 0.26, blue: 0.38))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+                .padding(20)
+            }
+            .background(Color(red: 0.99, green: 0.97, blue: 0.96))
+            .navigationTitle("Lumi response")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private func detailSection<Content: View>(
+        title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title.uppercased())
+                .font(.caption.weight(.semibold))
+                .tracking(0.8)
+                .foregroundStyle(.secondary)
+
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
+        .background(.white.opacity(0.82), in: RoundedRectangle(cornerRadius: 20))
+        .overlay(
+            RoundedRectangle(cornerRadius: 20)
+                .stroke(Color.black.opacity(0.06), lineWidth: 1)
+        )
+    }
+}
+
 private struct HomeAppClipPreview: View {
     let revealState: RecipientRevealState
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            RecipientRevealPresentationView(revealState: revealState)
+            RecipientRevealPresentationView(
+                revealState: revealState,
+                feedbackState: HomePreviewFactory.feedbackPresentationState
+            )
 
             Button {
                 dismiss()

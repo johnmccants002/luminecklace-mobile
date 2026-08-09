@@ -28,13 +28,22 @@ final class MessageLibraryService: MessageLibraryServing {
         necklaceId: String,
         request: AddLibraryMessageRequest
     ) async throws -> QueueCreationResult {
+        var body: [String: Any] = [
+            "messageId": request.messageId,
+            "destination": request.destination.rawValue
+        ]
+        if let customization = request.customization {
+            var customizationBody: [String: Any] = [:]
+            if let primaryText = customization.primaryText {
+                customizationBody["primaryText"] = primaryText
+            }
+            customizationBody["secondaryText"] = customization.secondaryText ?? NSNull()
+            body["customization"] = customizationBody
+        }
         let payload = try await client.requestObject(
             method: .post,
             path: "/api/sender/necklaces/\(necklaceId)/lumis/from-library",
-            body: [
-                "messageId": request.messageId,
-                "destination": request.destination.rawValue
-            ],
+            body: body,
             authorized: true
         )
         guard let lumiPayload = JSONLookup.dictionary(payload, keys: ["lumi"]),

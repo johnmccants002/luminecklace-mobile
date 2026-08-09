@@ -17,13 +17,48 @@ nonisolated struct MessageCategory: Codable, Identifiable, Equatable, Sendable {
 
 nonisolated struct MessageTemplate: Codable, Identifiable, Equatable, Sendable {
     let id: String
+    let title: String?
     let text: String
+    let secondaryText: String?
+    let mood: String?
+    let durationSeconds: Int?
+    let experiencePresetKey: LumiExperiencePresetKey?
     let category: MessageTemplateCategory
     let presentation: LibraryMessagePresentation
     let isQueued: Bool?
     let queuedSection: QueueSection?
     let wasRecentlyRevealed: Bool?
     let lastUsedAt: String?
+
+    init(
+        id: String,
+        title: String? = nil,
+        text: String,
+        secondaryText: String? = nil,
+        mood: String? = nil,
+        durationSeconds: Int? = nil,
+        experiencePresetKey: LumiExperiencePresetKey? = nil,
+        category: MessageTemplateCategory,
+        presentation: LibraryMessagePresentation,
+        isQueued: Bool? = nil,
+        queuedSection: QueueSection? = nil,
+        wasRecentlyRevealed: Bool? = nil,
+        lastUsedAt: String? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.text = text
+        self.secondaryText = secondaryText
+        self.mood = mood
+        self.durationSeconds = durationSeconds
+        self.experiencePresetKey = experiencePresetKey
+        self.category = category
+        self.presentation = presentation
+        self.isQueued = isQueued
+        self.queuedSection = queuedSection
+        self.wasRecentlyRevealed = wasRecentlyRevealed
+        self.lastUsedAt = lastUsedAt
+    }
 }
 
 nonisolated struct MessageTemplateCategory: Codable, Equatable, Sendable {
@@ -92,11 +127,22 @@ nonisolated struct LibraryMessagePresentation: Codable, Equatable, Sendable {
 nonisolated struct AddLibraryMessageRequest: Codable, Equatable, Sendable {
     let messageId: String
     let destination: QueueSection
+    let customization: LibraryTextCustomization?
 
-    init(messageId: String, destination: QueueSection) {
+    init(
+        messageId: String,
+        destination: QueueSection,
+        customization: LibraryTextCustomization? = nil
+    ) {
         self.messageId = messageId
         self.destination = destination
+        self.customization = customization
     }
+}
+
+nonisolated struct LibraryTextCustomization: Codable, Equatable, Sendable {
+    let primaryText: String?
+    let secondaryText: String?
 }
 
 nonisolated struct SenderLumiResponse: Codable, Equatable, Sendable {
@@ -106,6 +152,8 @@ nonisolated struct SenderLumiResponse: Codable, Equatable, Sendable {
 nonisolated struct SenderLumi: Codable, Equatable, Sendable {
     let id: String
     let text: String
+    let experiencePresetKey: LumiExperiencePresetKey?
+    let secondaryText: String?
     let queuePosition: Int
     let presentation: LibraryMessagePresentation
 }

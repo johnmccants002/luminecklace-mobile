@@ -33,6 +33,14 @@ final class HomeViewModel: ObservableObject {
         appState.queueSnapshot?.current
     }
 
+    var featuredLumi: HomeFeaturedLumi {
+        HomeFeaturedLumi(snapshot: appState.queueSnapshot)
+    }
+
+    var featuredMessage: Message? {
+        featuredLumi.message
+    }
+
     var queuedMessages: [Message] {
         appState.queueSnapshot?.upNext ?? []
     }
@@ -47,6 +55,10 @@ final class HomeViewModel: ObservableObject {
 
     var recentlyRevealed: [RevealedLumi] {
         appState.equippedNecklace?.recentlyRevealed ?? []
+    }
+
+    var notificationHomeFocusId: UUID? {
+        appState.notificationHomeFocusId
     }
 
     var greetingName: String {
@@ -83,7 +95,7 @@ final class HomeViewModel: ObservableObject {
 
     var previewRevealState: RecipientRevealState {
         HomePreviewFactory.revealState(
-            message: message,
+            message: featuredMessage,
             necklaceName: necklaceName
         )
     }
@@ -124,6 +136,41 @@ final class HomeViewModel: ObservableObject {
     }
 }
 
+enum HomeFeaturedLumi: Equatable {
+    case current(Message)
+    case upNext(Message, count: Int)
+    case reserve(Message, count: Int)
+    case empty
+
+    init(snapshot: QueueSnapshot?) {
+        guard let snapshot else {
+            self = .empty
+            return
+        }
+
+        if let current = snapshot.current {
+            self = .current(current)
+        } else if let next = snapshot.upNext.first {
+            self = .upNext(next, count: snapshot.upNext.count)
+        } else if let reserve = snapshot.reserve.first {
+            self = .reserve(reserve, count: snapshot.reserve.count)
+        } else {
+            self = .empty
+        }
+    }
+
+    var message: Message? {
+        switch self {
+        case let .current(message),
+             let .upNext(message, _),
+             let .reserve(message, _):
+            message
+        case .empty:
+            nil
+        }
+    }
+}
+
 enum HomeGreeting {
     static let pacificTimeZone = TimeZone(identifier: "America/Los_Angeles")!
 
@@ -146,6 +193,8 @@ enum HomeGreeting {
 }
 
 enum HomePreviewFactory {
+    static let feedbackPresentationState: RecipientFeedbackPresentationState = .disabled
+
     static func revealState(
         message: Message?,
         necklaceName: String
@@ -177,7 +226,10 @@ enum HomePreviewFactory {
             necklaceDisplayName: necklaceName,
             lumiId: message.id,
             text: message.text,
-            presentation: presentation
+            experiencePresetKey: message.experiencePresetKey ?? .classicWordRise,
+            secondaryText: message.secondaryText,
+            presentation: presentation,
+            attachment: message.attachment
         )
 
         return .revealed(lumi, confirmationState: .pending)

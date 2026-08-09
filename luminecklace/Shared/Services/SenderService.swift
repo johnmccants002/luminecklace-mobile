@@ -354,7 +354,38 @@ struct SenderService {
                 textAlignment: textAlignment,
                 textPosition: textPosition
             ),
+            experiencePresetKey: LumiExperiencePresetKey(
+                serverValue: JSONLookup.string(
+                    dict,
+                    keys: ["experiencePresetKey", "experience_preset_key"]
+                )
+            ),
+            secondaryText: JSONLookup.string(
+                dict,
+                keys: ["secondaryText", "secondary_text"]
+            ),
             attachment: mapAttachment(from: dict)
+        )
+    }
+
+    private func mapFeedback(from dict: [String: Any]) -> LumiFeedback? {
+        guard let payload = JSONLookup.dictionary(dict, keys: ["feedback"]) else {
+            return nil
+        }
+
+        let reaction = JSONLookup.string(payload, keys: ["reaction"])
+            .flatMap(LumiReaction.init(rawValue:))
+        let reactionAt = JSONLookup.string(payload, keys: ["reactionAt"])
+            .flatMap(parseISO8601Date)
+        let responseText = JSONLookup.string(payload, keys: ["responseText"])
+        let respondedAt = JSONLookup.string(payload, keys: ["respondedAt"])
+            .flatMap(parseISO8601Date)
+
+        return LumiFeedback(
+            reaction: reaction,
+            reactionAt: reactionAt,
+            responseText: responseText,
+            respondedAt: respondedAt
         )
     }
 
@@ -395,7 +426,18 @@ struct SenderService {
                     rawValue: JSONLookup.string(presentation, keys: ["textPosition"]) ?? ""
                 ) ?? .center
             ),
-            attachment: mapAttachment(from: dict)
+            experiencePresetKey: LumiExperiencePresetKey(
+                serverValue: JSONLookup.string(
+                    dict,
+                    keys: ["experiencePresetKey", "experience_preset_key"]
+                )
+            ),
+            secondaryText: JSONLookup.string(
+                dict,
+                keys: ["secondaryText", "secondary_text"]
+            ),
+            attachment: mapAttachment(from: dict),
+            feedback: mapFeedback(from: dict)
         )
     }
 
@@ -466,3 +508,9 @@ struct SenderService {
         )
     }
 }
+
+protocol NotificationNavigationServicing {
+    func listSenderNecklaces() async throws -> [NecklaceTag]
+}
+
+extension SenderService: NotificationNavigationServicing {}

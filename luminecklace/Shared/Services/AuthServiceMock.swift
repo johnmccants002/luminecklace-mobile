@@ -4,7 +4,16 @@ struct AuthResult {
     let user: User
 }
 
-struct AuthService {
+protocol AuthenticationServicing {
+    func signIn(email: String, password: String) async throws -> AuthResult
+    func resetPassword(email: String) async throws
+    func me() async throws -> User
+    func signOut() async throws
+    func clearLocalSession()
+    var hasAccessToken: Bool { get }
+}
+
+struct AuthService: AuthenticationServicing {
     private let client: APIClient
 
     init(client: APIClient = .shared) {
@@ -23,7 +32,7 @@ struct AuthService {
 
         guard let token = parseToken(from: payload) else {
             client.tokenStore.accessToken = nil
-            throw APIError.unauthorized
+            throw APIError.invalidPayload
         }
         client.tokenStore.accessToken = token
 

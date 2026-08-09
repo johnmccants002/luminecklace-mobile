@@ -17,13 +17,16 @@ enum APIConfig {
 enum HTTPMethod: String {
     case get = "GET"
     case post = "POST"
+    case put = "PUT"
     case patch = "PATCH"
+    case delete = "DELETE"
 }
 
 enum APIError: LocalizedError {
     case invalidURL
     case invalidResponse
     case unauthorized
+    case authenticationFailed(String)
     case conflict([String: Any])
     case serverError(statusCode: Int, message: String)
     case missingRequiredField(String)
@@ -37,6 +40,8 @@ enum APIError: LocalizedError {
             return "Unexpected response from server."
         case .unauthorized:
             return "Your session expired. Please sign in again."
+        case let .authenticationFailed(message):
+            return message
         case .conflict:
             return "This queue changed somewhere else. The latest order has been loaded."
         case let .serverError(_, message):
@@ -187,7 +192,12 @@ final class APIClient {
 
         guard (200...299).contains(httpResponse.statusCode) else {
             if httpResponse.statusCode == 401 {
-                throw APIError.unauthorized
+                if authorized {
+                    throw APIError.unauthorized
+                }
+                throw APIError.authenticationFailed(
+                    Self.extractMessage(from: jsonDict) ?? "Invalid email or password."
+                )
             }
             if httpResponse.statusCode == 409 {
                 throw APIError.conflict(jsonDict)
@@ -265,7 +275,13 @@ final class APIClient {
         }
         guard (200...299).contains(httpResponse.statusCode) else {
             if httpResponse.statusCode == 401 {
-                throw APIError.unauthorized
+                if authorized {
+                    throw APIError.unauthorized
+                }
+                let jsonObject = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+                throw APIError.authenticationFailed(
+                    Self.extractMessage(from: jsonObject) ?? "Invalid email or password."
+                )
             }
             let jsonObject = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
             if httpResponse.statusCode == 409 {

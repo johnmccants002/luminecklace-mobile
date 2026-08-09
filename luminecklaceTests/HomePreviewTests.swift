@@ -71,4 +71,8 @@ final class HomePreviewTests: XCTestCase {
             .empty
         )
     }
+
+    func testSenderPreviewExplicitlyDisablesRecipientFeedback() {
+        XCTAssertFalse(HomePreviewFactory.feedbackPresentationState.isEnabled)
+    }
 }

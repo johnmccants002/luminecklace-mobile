@@ -6,7 +6,14 @@ struct RecipientClipRootView: View {
     var body: some View {
         RecipientRevealPresentationView(
             revealState: viewModel.state,
-            retryAction: viewModel.retry
+            retryAction: viewModel.retry,
+            retryConfirmationAction: viewModel.retryRevealConfirmation,
+            feedbackState: viewModel.feedbackPresentationState,
+            selectReaction: viewModel.selectReaction,
+            retryReaction: viewModel.retryReaction,
+            setResponseComposerPresented: viewModel.setResponseComposerPresented,
+            updateResponseDraft: viewModel.updateResponseDraft,
+            submitResponse: viewModel.submitResponse
         )
     }
 }

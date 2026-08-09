@@ -3,9 +3,17 @@ import SwiftUI
 struct RecipientRevealPresentationView: View {
     let revealState: RecipientRevealState
     var retryAction: (() -> Void)?
+    var retryConfirmationAction: (() -> Void)?
+    var feedbackState: RecipientFeedbackPresentationState = .disabled
+    var selectReaction: ((LumiReaction) -> Void)?
+    var retryReaction: (() -> Void)?
+    var setResponseComposerPresented: ((Bool) -> Void)?
+    var updateResponseDraft: ((String) -> Void)?
+    var submitResponse: (() -> Void)?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var presentation = RecipientPresentationCoordinator()
+    @State private var showsFeedbackControls = false
 
     private let particles: [RecipientParticleSpec] = [
         .init(x: 0.24, size: 10, duration: 16, delay: 0.0, drift: -12, opacity: 0.07),
@@ -16,8 +24,22 @@ struct RecipientRevealPresentationView: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                backgroundGradient
+                if !isShowingOpening,
+                   let lumi = presentation.lumi,
+                   lumi.experiencePresetKey != .classicWordRise {
+                    LumiExperienceRenderer(
+                        content: LumiExperienceContent(
+                            presetKey: lumi.experiencePresetKey,
+                            primaryText: lumi.text,
+                            secondaryText: lumi.secondaryText
+                        ),
+                        isActive: true
+                    )
                     .ignoresSafeArea()
+                } else {
+                    backgroundGradient
+                        .ignoresSafeArea()
+                }
 
                 GrainTexture()
                     .ignoresSafeArea()
@@ -48,6 +70,19 @@ struct RecipientRevealPresentationView: View {
         .onDisappear {
             presentation.cancel()
         }
+        .task(id: feedbackVisibilityTrigger) {
+            showsFeedbackControls = false
+            guard feedbackVisibilityTrigger.isEligible else { return }
+
+            if !reduceMotion {
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled else { return }
+            }
+
+            withAnimation(.easeOut(duration: reduceMotion ? 0.2 : 0.4)) {
+                showsFeedbackControls = true
+            }
+        }
         .animation(
             reduceMotion ? .easeOut(duration: 0.2) : .easeInOut(duration: 0.45),
             value: isShowingOpening
@@ -70,8 +105,18 @@ struct RecipientRevealPresentationView: View {
                         tokens: presentation.tokens,
                         revealedWordCount: presentation.revealedWordCount,
                         showsAttachmentAction: presentation.phase == .complete,
+                        showsFeedbackControls: showsFeedbackControls,
+                        showsConfirmationRetry: presentation.phase == .complete
+                            && isConfirmationTemporarilyFailed,
+                        feedbackState: feedbackState,
                         reduceMotion: reduceMotion,
-                        timing: presentation.timing
+                        timing: presentation.timing,
+                        retryConfirmationAction: retryConfirmationAction,
+                        selectReaction: selectReaction,
+                        retryReaction: retryReaction,
+                        setResponseComposerPresented: setResponseComposerPresented,
+                        updateResponseDraft: updateResponseDraft,
+                        submitResponse: submitResponse
                     )
                     .transition(messageTransition(for: lumi.presentation.textPosition))
                 }
@@ -117,6 +162,32 @@ struct RecipientRevealPresentationView: View {
         case .messageRevealing, .complete, .error:
             return false
         }
+    }
+
+    private var isConfirmationTemporarilyFailed: Bool {
+        guard feedbackState.isEnabled,
+              case let .revealed(_, confirmationState) = revealState,
+              confirmationState == .temporarilyFailed else {
+            return false
+        }
+        return true
+    }
+
+    private var feedbackVisibilityTrigger: FeedbackVisibilityTrigger {
+        let isConfirmed: Bool
+        if case let .revealed(_, confirmationState) = revealState,
+           case .confirmed = confirmationState {
+            isConfirmed = true
+        } else {
+            isConfirmed = false
+        }
+
+        return FeedbackVisibilityTrigger(
+            isEligible: feedbackState.isEnabled
+                && presentation.phase == .complete
+                && isConfirmed,
+            reduceMotion: reduceMotion
+        )
     }
 
     @ViewBuilder
@@ -271,8 +342,17 @@ private struct RecipientMessageView: View {
     let tokens: [RecipientMessageToken]
     let revealedWordCount: Int
     let showsAttachmentAction: Bool
+    let showsFeedbackControls: Bool
+    let showsConfirmationRetry: Bool
+    let feedbackState: RecipientFeedbackPresentationState
     let reduceMotion: Bool
     let timing: RecipientRevealTiming
+    var retryConfirmationAction: (() -> Void)?
+    var selectReaction: ((LumiReaction) -> Void)?
+    var retryReaction: (() -> Void)?
+    var setResponseComposerPresented: ((Bool) -> Void)?
+    var updateResponseDraft: ((String) -> Void)?
+    var submitResponse: (() -> Void)?
 
     @Environment(\.openURL) private var openURL
 
@@ -280,7 +360,16 @@ private struct RecipientMessageView: View {
         GeometryReader { geometry in
             ScrollView {
                 VStack(spacing: 22) {
-                    revealedText
+                    Group {
+                        if lumi.experiencePresetKey == .classicWordRise {
+                            revealedText
+                        } else {
+                            Color.clear
+                                .accessibilityLabel(
+                                    "Lumi message. \(lumi.text) \(lumi.secondaryText ?? "")"
+                                )
+                        }
+                    }
                         .font(
                             .system(
                                 size: LumiTextLayoutResolver.effectivePointSize(
@@ -306,8 +395,7 @@ private struct RecipientMessageView: View {
                             maxWidth: .infinity,
                             minHeight: max(
                                 0,
-                                geometry.size.height
-                                    - (showsAttachmentAction && supportedAttachmentURL != nil ? 150 : 64)
+                                geometry.size.height - reservedTrailingHeight
                             ),
                             alignment: LumiTextLayoutResolver.verticalAlignment(
                                 for: lumi.presentation.textPosition
@@ -360,6 +448,44 @@ private struct RecipientMessageView: View {
                         .accessibilityLabel(attachment.safeCallToActionLabel)
                         .accessibilityHint("Opens Instagram or your web browser")
                     }
+
+                    if showsConfirmationRetry {
+                        VStack(spacing: 10) {
+                            Text("The connection faded before this Lumi finished opening.")
+                                .font(.subheadline)
+                                .foregroundStyle(.white.opacity(0.82))
+                                .multilineTextAlignment(.center)
+
+                            if let retryConfirmationAction {
+                                Button("Reconnect", action: retryConfirmationAction)
+                                    .font(.headline)
+                                    .foregroundStyle(.white)
+                                    .frame(minHeight: 44)
+                                    .padding(.horizontal, 20)
+                                    .background(.white.opacity(0.14), in: Capsule())
+                            }
+                        }
+                        .frame(maxWidth: 430)
+                        .padding(16)
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
+                        .transition(.opacity)
+                    }
+
+                    if showsFeedbackControls {
+                        RecipientFeedbackView(
+                            state: feedbackState,
+                            selectReaction: selectReaction,
+                            retryReaction: retryReaction,
+                            setResponseComposerPresented: setResponseComposerPresented,
+                            updateResponseDraft: updateResponseDraft,
+                            submitResponse: submitResponse
+                        )
+                        .transition(
+                            reduceMotion
+                                ? .opacity
+                                : .opacity.combined(with: .offset(y: 10))
+                        )
+                    }
                 }
                 .padding(.bottom, 30)
             }
@@ -368,11 +494,26 @@ private struct RecipientMessageView: View {
                 LumiTextLayoutResolver.scrollAnchor(for: lumi.presentation.textPosition)
             )
         }
-        .animation(.easeOut(duration: reduceMotion ? 0.25 : 0.35), value: showsAttachmentAction)
+        .animation(.easeOut(duration: reduceMotion ? 0.2 : 0.35), value: showsAttachmentAction)
+        .animation(.easeOut(duration: reduceMotion ? 0.2 : 0.4), value: showsFeedbackControls)
     }
 
     private var supportedAttachmentURL: URL? {
         lumi.attachment?.supportedDestinationURL
+    }
+
+    private var reservedTrailingHeight: CGFloat {
+        var height: CGFloat = 64
+        if showsAttachmentAction && supportedAttachmentURL != nil {
+            height += 100
+        }
+        if showsConfirmationRetry {
+            height += 150
+        }
+        if showsFeedbackControls {
+            height += 300
+        }
+        return height
     }
 
     private var revealedText: Text {
@@ -391,6 +532,11 @@ private struct RecipientMessageView: View {
             return Text("\(result)\(tokenText)")
         }
     }
+}
+
+private struct FeedbackVisibilityTrigger: Equatable {
+    let isEligible: Bool
+    let reduceMotion: Bool
 }
 
 private struct RecipientStatusView: View {

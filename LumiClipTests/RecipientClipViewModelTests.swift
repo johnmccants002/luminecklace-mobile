@@ -237,6 +237,103 @@ final class RecipientClipViewModelTests: XCTestCase {
         )
     }
 
+    func testReactionCanChangeAndFailurePreservesConfirmedReaction() async throws {
+        let lumi = makeLumi(text: "A meaningful moment.")
+        let service = MockRecipientTapService(
+            resolveResults: [.success(.ready(lumi))],
+            reactionResults: [
+                .success(LumiFeedback(reaction: .heart)),
+                .failure(RecipientFeedbackServiceError.temporaryFailure),
+                .success(LumiFeedback(reaction: .wow))
+            ]
+        )
+        let viewModel = RecipientClipViewModel(tapService: service)
+        viewModel.handle(url: try XCTUnwrap(URL(string: "https://www.luminecklace.com/t/feedback")))
+        try await waitUntil {
+            if case .revealed(_, .confirmed(_)) = viewModel.state { return true }
+            return false
+        }
+
+        viewModel.selectReaction(.heart)
+        viewModel.selectReaction(.laugh)
+        try await waitUntil { viewModel.feedbackState.selectedReaction == .heart }
+        XCTAssertEqual(service.reactionRequests.map(\.reaction), [.heart])
+
+        viewModel.selectReaction(.touched)
+        try await waitUntil { viewModel.feedbackState.reactionErrorMessage != nil }
+        XCTAssertEqual(viewModel.feedbackState.selectedReaction, .heart)
+
+        viewModel.selectReaction(.wow)
+        try await waitUntil { viewModel.feedbackState.selectedReaction == .wow }
+        XCTAssertEqual(service.reactionRequests.map(\.reaction), [.heart, .touched, .wow])
+    }
+
+    func testResponseDraftLimitFailureAndSuccessLocking() async throws {
+        let lumi = makeLumi(text: "A meaningful moment.")
+        let service = MockRecipientTapService(
+            resolveResults: [.success(.ready(lumi))],
+            responseResults: [
+                .failure(RecipientFeedbackServiceError.temporaryFailure),
+                .success(LumiFeedback(responseText: "Still here"))
+            ]
+        )
+        let viewModel = RecipientClipViewModel(tapService: service)
+        viewModel.handle(url: try XCTUnwrap(URL(string: "https://www.luminecklace.com/t/response")))
+        try await waitUntil {
+            if case .revealed(_, .confirmed(_)) = viewModel.state { return true }
+            return false
+        }
+
+        viewModel.updateResponseDraft(String(repeating: "a", count: 280))
+        XCTAssertEqual(viewModel.feedbackState.draftResponse.count, 250)
+
+        viewModel.updateResponseDraft("   ")
+        viewModel.submitResponse()
+        await Task.yield()
+        XCTAssertTrue(service.responseRequests.isEmpty)
+
+        viewModel.updateResponseDraft("  Still here  ")
+        viewModel.submitResponse()
+        try await waitUntil { viewModel.feedbackState.responseErrorMessage != nil }
+        XCTAssertEqual(viewModel.feedbackState.draftResponse, "  Still here  ")
+
+        viewModel.submitResponse()
+        try await waitUntil { viewModel.feedbackState.submittedResponse == "Still here" }
+        XCTAssertTrue(viewModel.feedbackState.isResponseLocked)
+        viewModel.submitResponse()
+        await Task.yield()
+        XCTAssertEqual(service.responseRequests, ["Still here", "Still here"])
+    }
+
+    func testFeedbackResetsForDifferentRevealSession() async throws {
+        let first = makeLumi(sessionID: "session-1", text: "First")
+        let second = makeLumi(sessionID: "session-2", text: "Second")
+        let service = MockRecipientTapService(
+            resolveResults: [.success(.ready(first)), .success(.ready(second))],
+            reactionResults: [.success(LumiFeedback(reaction: .hug))]
+        )
+        let viewModel = RecipientClipViewModel(tapService: service)
+
+        viewModel.handle(url: try XCTUnwrap(URL(string: "https://www.luminecklace.com/t/first")))
+        try await waitUntil {
+            if case let .revealed(lumi, .confirmed(_)) = viewModel.state {
+                return lumi.revealSessionId == "session-1"
+            }
+            return false
+        }
+        viewModel.selectReaction(.hug)
+        try await waitUntil { viewModel.feedbackState.selectedReaction == .hug }
+
+        viewModel.handle(url: try XCTUnwrap(URL(string: "https://www.luminecklace.com/t/second")))
+        try await waitUntil {
+            if case let .revealed(lumi, .confirmed(_)) = viewModel.state {
+                return lumi.revealSessionId == "session-2"
+            }
+            return false
+        }
+        XCTAssertEqual(viewModel.feedbackState, .empty)
+    }
+
     private func makeLumi(
         sessionID: String = "session-1",
         text: String
@@ -286,9 +383,19 @@ private final class MockRecipientTapService: RecipientTapServicing, @unchecked S
     nonisolated(unsafe) private var queuedResolveResults: [Result<ResolveTapResponse, Error>]
     nonisolated(unsafe) private var _resolvedTokens: [String] = []
     nonisolated(unsafe) private var _confirmedSessionIDs: [String] = []
+    nonisolated(unsafe) private var queuedReactionResults: [Result<LumiFeedback, Error>]
+    nonisolated(unsafe) private var queuedResponseResults: [Result<LumiFeedback, Error>]
+    nonisolated(unsafe) private var _reactionRequests: [(sessionID: String, reaction: LumiReaction)] = []
+    nonisolated(unsafe) private var _responseRequests: [String] = []
 
-    init(resolveResults: [Result<ResolveTapResponse, Error>]) {
+    init(
+        resolveResults: [Result<ResolveTapResponse, Error>],
+        reactionResults: [Result<LumiFeedback, Error>] = [],
+        responseResults: [Result<LumiFeedback, Error>] = []
+    ) {
         queuedResolveResults = resolveResults
+        queuedReactionResults = reactionResults
+        queuedResponseResults = responseResults
     }
 
     var resolvedTokens: [String] {
@@ -297,6 +404,14 @@ private final class MockRecipientTapService: RecipientTapServicing, @unchecked S
 
     var confirmedSessionIDs: [String] {
         lock.withLock { _confirmedSessionIDs }
+    }
+
+    var reactionRequests: [(sessionID: String, reaction: LumiReaction)] {
+        lock.withLock { _reactionRequests }
+    }
+
+    var responseRequests: [String] {
+        lock.withLock { _responseRequests }
     }
 
     func resolveTap(token: String) async throws -> ResolveTapResponse {
@@ -315,5 +430,27 @@ private final class MockRecipientTapService: RecipientTapServicing, @unchecked S
             _confirmedSessionIDs.append(revealSessionId)
         }
         return ConfirmRevealResponse(status: "revealed", revealedAt: Date(timeIntervalSince1970: 1))
+    }
+
+    func setReaction(revealSessionId: String, reaction: LumiReaction) async throws -> LumiFeedback {
+        let result = lock.withLock { () -> Result<LumiFeedback, Error> in
+            _reactionRequests.append((revealSessionId, reaction))
+            guard !queuedReactionResults.isEmpty else {
+                return .failure(RecipientFeedbackServiceError.temporaryFailure)
+            }
+            return queuedReactionResults.removeFirst()
+        }
+        return try result.get()
+    }
+
+    func submitResponse(revealSessionId: String, text: String) async throws -> LumiFeedback {
+        let result = lock.withLock { () -> Result<LumiFeedback, Error> in
+            _responseRequests.append(text)
+            guard !queuedResponseResults.isEmpty else {
+                return .failure(RecipientFeedbackServiceError.temporaryFailure)
+            }
+            return queuedResponseResults.removeFirst()
+        }
+        return try result.get()
     }
 }

@@ -28,6 +28,31 @@ final class ShareAttachmentContractTests: XCTestCase {
         XCTAssertEqual(first, second)
     }
 
+    func testAppClipDecodesSharedExperienceAndFallsBackForUnknownPreset() throws {
+        var richPayload = readyPayload
+        richPayload["lumi"] = [
+            "id": "lumi-1",
+            "text": "First reveal",
+            "secondaryText": "Second reveal",
+            "experiencePresetKey": "timed_surprise_v1"
+        ]
+        guard case let .ready(rich) = try decode(richPayload) else {
+            return XCTFail("Expected rich Lumi")
+        }
+        XCTAssertEqual(rich.experiencePresetKey, .timedSurprise)
+        XCTAssertEqual(rich.secondaryText, "Second reveal")
+
+        richPayload["lumi"] = [
+            "id": "lumi-2",
+            "text": "Future reveal",
+            "experiencePresetKey": "not_shipped_yet_v2"
+        ]
+        guard case let .ready(fallback) = try decode(richPayload) else {
+            return XCTFail("Expected fallback Lumi")
+        }
+        XCTAssertEqual(fallback.experiencePresetKey, .classicWordRise)
+    }
+
     private func decode(_ payload: [String: Any]) throws -> ResolveTapResponse {
         try JSONDecoder().decode(
             ResolveTapResponse.self,
