@@ -6,7 +6,7 @@ final class ShareLumiViewModel: ObservableObject {
     static let defaultMessage = "This made me think of you."
 
     @Published private(set) var state: ShareLumiState = .extracting
-    @Published private(set) var extractedLink: ExtractedInstagramLink?
+    @Published private(set) var extractedLink: ExtractedShareLink?
     @Published private(set) var necklaces: [ShareNecklace] = []
     @Published var selectedNecklaceID: String?
     @Published var message = ShareLumiViewModel.defaultMessage {

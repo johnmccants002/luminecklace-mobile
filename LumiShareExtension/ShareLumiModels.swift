@@ -141,12 +141,19 @@ nonisolated struct CreateSharedLumiResponse: Decodable, Equatable {
     }
 }
 
-nonisolated struct ExtractedInstagramLink: Equatable {
+nonisolated struct ExtractedShareLink: Equatable {
     let url: URL
+    let provider: LumiLinkProvider
+    let host: String
     let contentKind: String
 
+    var displayProviderName: String {
+        provider.displayName
+    }
+
     var displayContentKind: String {
-        switch contentKind {
+        guard provider == .instagram else { return host }
+        return switch contentKind {
         case "reel": "Reel"
         case "post": "Post"
         case "story": "Story"

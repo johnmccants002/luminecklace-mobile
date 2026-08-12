@@ -1,9 +1,15 @@
+import Security
 import UserNotifications
 import XCTest
 @testable import luminecklace
 
 @MainActor
 final class PushNotificationTests: XCTestCase {
+    override func tearDown() {
+        PushTransportURLProtocol.handler = nil
+        super.tearDown()
+    }
+
     func testAPNSTokenUsesLowercaseHexWithLeadingZeros() {
         XCTAssertEqual(
             PushNotificationManager.lowercaseHexToken(
@@ -49,6 +55,104 @@ final class PushNotificationTests: XCTestCase {
 
         XCTAssertNil(payload.safeDestination.necklaceId)
         XCTAssertEqual(payload.safeDestination.lumiId, "lumi")
+    }
+
+    func testPushDeviceRegistrationTransportContract() async throws {
+        let service = makeTransportService()
+        PushTransportURLProtocol.handler = { request in
+            XCTAssertEqual(request.url?.path, "/api/push/devices")
+            XCTAssertEqual(request.httpMethod, "PUT")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer push-test-token")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"), "application/json")
+
+            let body = try Self.jsonBody(from: request)
+            XCTAssertEqual(body["deviceToken"] as? String, "00aaff")
+            XCTAssertEqual(body["environment"] as? String, "sandbox")
+            XCTAssertEqual(body["bundleId"] as? String, PushAppMetadata.fullAppBundleId)
+            XCTAssertEqual(body["appVersion"] as? String, "1.1")
+            XCTAssertEqual(body["deviceModel"] as? String, "iPhone")
+            XCTAssertEqual(body.count, 5)
+            return Self.transportResponse(request, body: #"{"ok":true}"#)
+        }
+
+        try await service.register(
+            PushDeviceRegistration(
+                deviceToken: "00aaff",
+                environment: .sandbox,
+                bundleId: PushAppMetadata.fullAppBundleId,
+                appVersion: "1.1",
+                deviceModel: "iPhone"
+            )
+        )
+    }
+
+    func testPushDeviceDisableTransportContract() async throws {
+        let service = makeTransportService()
+        PushTransportURLProtocol.handler = { request in
+            XCTAssertEqual(request.url?.path, "/api/push/devices")
+            XCTAssertEqual(request.httpMethod, "DELETE")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer push-test-token")
+
+            let body = try Self.jsonBody(from: request)
+            XCTAssertEqual(body["deviceToken"] as? String, "00aaff")
+            XCTAssertEqual(body["environment"] as? String, "production")
+            XCTAssertEqual(body["bundleId"] as? String, PushAppMetadata.fullAppBundleId)
+            XCTAssertEqual(body.count, 3)
+            return Self.transportResponse(request, body: #"{"ok":true}"#)
+        }
+
+        try await service.disable(
+            PushDeviceDisableRequest(
+                deviceToken: "00aaff",
+                environment: .production,
+                bundleId: PushAppMetadata.fullAppBundleId
+            )
+        )
+    }
+
+    func testPushPreferencesFetchTransportContract() async throws {
+        let service = makeTransportService()
+        PushTransportURLProtocol.handler = { request in
+            XCTAssertEqual(request.url?.path, "/api/push/preferences")
+            XCTAssertEqual(request.httpMethod, "GET")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer push-test-token")
+            XCTAssertNil(request.httpBody)
+            return Self.transportResponse(
+                request,
+                body: #"{"revealsEnabled":true,"reactionsEnabled":true,"responsesEnabled":true}"#
+            )
+        }
+
+        let preferences = try await service.fetchPreferences()
+
+        XCTAssertEqual(preferences, .enabledByDefault)
+    }
+
+    func testPushPreferencesPatchUsesPartialCamelCaseBodyAndReturnsFullState() async throws {
+        let service = makeTransportService()
+        PushTransportURLProtocol.handler = { request in
+            XCTAssertEqual(request.url?.path, "/api/push/preferences")
+            XCTAssertEqual(request.httpMethod, "PATCH")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer push-test-token")
+
+            let body = try Self.jsonBody(from: request)
+            XCTAssertEqual(body["responsesEnabled"] as? Bool, false)
+            XCTAssertNil(body["revealsEnabled"])
+            XCTAssertNil(body["reactionsEnabled"])
+            XCTAssertEqual(body.count, 1)
+            return Self.transportResponse(
+                request,
+                body: #"{"revealsEnabled":true,"reactionsEnabled":true,"responsesEnabled":false}"#
+            )
+        }
+
+        let preferences = try await service.updatePreferences(
+            PushPreferencesUpdate(responsesEnabled: false)
+        )
+
+        XCTAssertTrue(preferences.revealsEnabled)
+        XCTAssertTrue(preferences.reactionsEnabled)
+        XCTAssertFalse(preferences.responsesEnabled)
     }
 
     func testRegistrationWaitsForAuthenticatedUser() async {
@@ -381,6 +485,67 @@ final class PushNotificationTests: XCTestCase {
 
     private let tokenData = Data(repeating: 0xAB, count: 32)
 
+    private func makeTransportService() -> PushDeviceService {
+        let suite = "PushTransportTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        defaults.set("push-test-token", forKey: TokenStore.legacyKey)
+
+        let tokenStore = TokenStore(
+            sharedStore: SharedAuthTokenStore(
+                keychain: PushTestKeychain(),
+                accessGroup: "push.tests"
+            ),
+            defaults: defaults
+        )
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PushTransportURLProtocol.self]
+        let client = APIClient(
+            baseURL: URL(string: "https://push.example.test")!,
+            session: URLSession(configuration: configuration),
+            tokenStore: tokenStore
+        )
+        return PushDeviceService(client: client)
+    }
+
+    private static func jsonBody(from request: URLRequest) throws -> [String: Any] {
+        let data: Data
+        if let body = request.httpBody {
+            data = body
+        } else {
+            let stream = try XCTUnwrap(request.httpBodyStream)
+            stream.open()
+            defer { stream.close() }
+
+            var streamed = Data()
+            var buffer = [UInt8](repeating: 0, count: 1_024)
+            while stream.hasBytesAvailable {
+                let count = stream.read(&buffer, maxLength: buffer.count)
+                if count < 0 { throw try XCTUnwrap(stream.streamError) }
+                if count == 0 { break }
+                streamed.append(buffer, count: count)
+            }
+            data = streamed
+        }
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    private static func transportResponse(
+        _ request: URLRequest,
+        status: Int = 200,
+        body: String
+    ) -> (HTTPURLResponse, Data) {
+        (
+            HTTPURLResponse(
+                url: request.url!,
+                statusCode: status,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!,
+            Data(body.utf8)
+        )
+    }
+
     private func makeManager(
         service: MockPushService? = nil,
         authorization: MockAuthorizationProvider? = nil,
@@ -467,6 +632,42 @@ final class PushNotificationTests: XCTestCase {
             )
         )
     }
+}
+
+private final class PushTransportURLProtocol: URLProtocol, @unchecked Sendable {
+    nonisolated(unsafe) static var handler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let handler = Self.handler else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+        do {
+            let (response, data) = try handler(request)
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {}
+}
+
+private final class PushTestKeychain: KeychainOperating, @unchecked Sendable {
+    func copyMatching(_ query: CFDictionary) -> (status: OSStatus, data: Data?) {
+        (errSecItemNotFound, nil)
+    }
+
+    func add(_ attributes: CFDictionary) -> OSStatus { errSecInteractionNotAllowed }
+    func update(_ query: CFDictionary, attributes: CFDictionary) -> OSStatus {
+        errSecInteractionNotAllowed
+    }
+    func delete(_ query: CFDictionary) -> OSStatus { errSecItemNotFound }
 }
 
 @MainActor

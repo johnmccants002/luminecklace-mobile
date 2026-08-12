@@ -16,6 +16,19 @@ final class ShareAttachmentContractTests: XCTestCase {
         XCTAssertNil(textOnly.attachment)
     }
 
+    func testReadyResponseSupportsPublicWebsiteAttachment() throws {
+        var payload = readyPayload
+        payload["attachment"] = websiteAttachmentPayload
+        guard case let .ready(attached) = try decode(payload) else {
+            return XCTFail("Expected attached Lumi")
+        }
+
+        XCTAssertTrue(attached.attachment?.isSupportedWebsiteLink == true)
+        XCTAssertEqual(attached.attachment?.displayHost, "example.com")
+        XCTAssertEqual(attached.attachment?.badgeTitle, "Website · example.com")
+        XCTAssertEqual(attached.attachment?.recipientDetail, "example.com")
+    }
+
     func testMalformedAttachmentDoesNotFailResolveOrConfirmationIdentity() throws {
         var payload = readyPayload
         payload["attachment"] = ["type": 10, "provider": false]
@@ -78,6 +91,18 @@ final class ShareAttachmentContractTests: XCTestCase {
             "url": "https://instagram.com/p/example/",
             "host": "instagram.com",
             "ctaLabel": "View on Instagram",
+            "openMode": "external"
+        ]
+    }
+
+    private var websiteAttachmentPayload: [String: Any] {
+        [
+            "type": "link",
+            "provider": "website",
+            "contentKind": "link",
+            "url": "https://example.com/article?ref=lumi",
+            "host": "example.com",
+            "ctaLabel": "Open website",
             "openMode": "external"
         ]
     }

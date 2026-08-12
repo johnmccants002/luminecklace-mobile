@@ -25,6 +25,61 @@ final class ShareToLumiModelTests: XCTestCase {
         XCTAssertFalse(makeAttachment(openMode: "inline").isSupportedInstagramLink)
     }
 
+    func testSupportedWebsiteAttachmentUsesValidatedHostForDisplay() throws {
+        let attachment = makeAttachment(
+            url: "https://Example.com/articles/one?ref=lumi#details",
+            provider: "website",
+            kind: "link",
+            host: "forged.example",
+            ctaLabel: ""
+        )
+
+        XCTAssertTrue(attachment.isSupportedLink)
+        XCTAssertTrue(attachment.isSupportedWebsiteLink)
+        XCTAssertFalse(attachment.isSupportedInstagramLink)
+        XCTAssertEqual(attachment.displayHost, "example.com")
+        XCTAssertEqual(attachment.badgeTitle, "Website · example.com")
+        XCTAssertEqual(attachment.recipientDetail, "example.com")
+        XCTAssertEqual(attachment.safeCallToActionLabel, "Open website")
+        XCTAssertEqual(attachment.attachmentAccessibilityLabel, "Website attachment from example.com")
+        XCTAssertEqual(attachment.supportedDestinationURL?.query, "ref=lumi")
+        XCTAssertEqual(attachment.supportedDestinationURL?.fragment, "details")
+    }
+
+    func testWebsiteAttachmentRejectsNonPublicDestinationsAndProviderMismatch() {
+        for url in [
+            "http://example.com/no",
+            "https://user:pass@example.com/no",
+            "https://localhost/no",
+            "https://service.local/no",
+            "https://10.0.0.1/no",
+            "https://172.16.0.1/no",
+            "https://192.168.0.1/no",
+            "https://[::1]/no",
+            "https://[fe80::1]/no"
+        ] {
+            XCTAssertFalse(
+                makeAttachment(url: url, provider: "website", kind: "link").isSupportedLink,
+                "Expected \(url) to be rejected"
+            )
+        }
+
+        XCTAssertFalse(
+            makeAttachment(
+                url: "https://instagram.com/p/example/",
+                provider: "website",
+                kind: "link"
+            ).isSupportedLink
+        )
+        XCTAssertFalse(
+            makeAttachment(
+                url: "https://example.com/article",
+                provider: "instagram",
+                kind: "link"
+            ).isSupportedLink
+        )
+    }
+
     func testUnknownContentKindRemainsDecodable() throws {
         let attachment = makeAttachment(kind: "future-kind")
         XCTAssertTrue(attachment.isSupportedInstagramLink)
@@ -110,6 +165,8 @@ final class ShareToLumiModelTests: XCTestCase {
         url: String = "https://www.instagram.com/reel/example/",
         provider: String = "instagram",
         kind: String = "reel",
+        host: String = "instagram.com",
+        ctaLabel: String = "View on Instagram",
         openMode: String = "external"
     ) -> LumiLinkAttachment {
         LumiLinkAttachment(
@@ -117,8 +174,8 @@ final class ShareToLumiModelTests: XCTestCase {
             provider: provider,
             contentKind: kind,
             urlString: url,
-            host: "instagram.com",
-            ctaLabel: "View on Instagram",
+            host: host,
+            ctaLabel: ctaLabel,
             openMode: openMode
         )
     }

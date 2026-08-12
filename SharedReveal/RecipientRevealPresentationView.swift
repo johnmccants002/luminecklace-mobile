@@ -417,7 +417,7 @@ private struct RecipientMessageView: View {
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text(attachment.safeCallToActionLabel)
                                         .font(.headline)
-                                    Text("Instagram \(attachment.displayContentKind)")
+                                    Text(attachment.recipientDetail ?? "Website")
                                         .font(.caption)
                                         .opacity(0.76)
                                 }
@@ -446,7 +446,7 @@ private struct RecipientMessageView: View {
                                 : .opacity.combined(with: .move(edge: .bottom))
                         )
                         .accessibilityLabel(attachment.safeCallToActionLabel)
-                        .accessibilityHint("Opens Instagram or your web browser")
+                        .accessibilityHint(attachment.openAccessibilityHint)
                     }
 
                     if showsConfirmationRetry {

@@ -4,9 +4,9 @@ This Xcode project contains the full Luminecklace app, the recipient App Clip, a
 
 ## Share to Lumi
 
-Share to Lumi lets a signed-in sender share an Instagram HTTPS link into a necklace queue without downloading the Instagram post. From Instagram, choose **Share**, select **Lumi**, confirm the necklace and message, choose **Up Next** or **Reserve**, and tap **Add to Lumi**. The extension submits the link while it is open and closes only after the backend confirms success.
+Share to Lumi lets a signed-in sender share a public HTTPS website or Instagram link into a necklace queue without downloading the destination content. From Safari, Instagram, or another app, choose **Share**, select **Lumi**, confirm the necklace and message, choose **Up Next** or **Reserve**, and tap **Add to Lumi**. The extension submits the link while it is open and closes only after the backend confirms success.
 
-The recipient still sees the Lumi message first. After the shared word-reveal presentation reaches its completed phase, the App Clip or full app fades in a dedicated **View on Instagram** action. That action opens the normalized HTTPS URL supplied by the backend. iOS may route the universal link to Instagram when installed; otherwise it opens the browser. The app never creates an `instagram://` URL and never opens Instagram automatically.
+The recipient still sees the Lumi message first. After the shared word-reveal presentation reaches its completed phase, the App Clip or full app fades in a dedicated link action. Instagram uses **View on Instagram**; other websites use **Open website** and display the validated hostname. The app opens only the normalized HTTPS URL after an explicit tap and never opens links automatically.
 
 ### Targets and identifiers
 
@@ -14,15 +14,15 @@ The recipient still sees the Lumi message first. After the shared word-reveal pr
 | --- | --- | --- |
 | `luminecklace` | `luminecklace.luminecklace` | Full sender and recipient app |
 | `lumiclip` | `luminecklace.luminecklace.Clip` | Unauthenticated recipient App Clip |
-| `LumiShareExtension` | `luminecklace.luminecklace.ShareExtension` | Instagram share-sheet compose experience |
+| `LumiShareExtension` | `luminecklace.luminecklace.ShareExtension` | Website and Instagram share-sheet compose experience |
 
 `LumiShareExtension` is embedded in the full app's **Embed App Extensions** phase. It is not embedded in `lumiclip`. The shared `LumiShareExtension` scheme builds the extension and its focused test target.
 
 ### Supported share inputs
 
-The production activation rule accepts one `public.url` item or plain text. The extractor prefers URL providers, then plain-text providers, then an extension item's attributed content. It accepts HTTPS URLs whose exact host is `instagram.com` or `www.instagram.com` and recognizes Reel, post, Story, and profile paths. Look-alike hosts and HTTP URLs are rejected.
+The production activation rule accepts one `public.url` item or plain text. The extractor prefers URL providers, then plain-text providers, then an extension item's attributed content. It accepts public HTTPS destinations up to 4,096 bytes with no embedded credentials. Local/reserved hostnames and non-public IP ranges are rejected. Exact `instagram.com` and `www.instagram.com` hosts retain Reel, post, Story, and profile classification; every other accepted host is a generic website and displays its normalized ASCII hostname.
 
-The extension deliberately does not download media, scrape HTML, call Instagram APIs, follow redirects, retain the source item, or create thumbnails. Those operations would increase privacy exposure, memory use, and extension latency without helping the recipient flow.
+The extension deliberately does not download media, scrape HTML, call destination APIs, resolve DNS, follow redirects, retain the source item, or create thumbnails. Those operations would increase privacy exposure, memory use, and extension latency without helping the recipient flow.
 
 The final `NSExtensionActivationRule` is:
 
@@ -65,11 +65,27 @@ The creation body is:
 ```json
 {
   "clientRequestId": "<session UUID>",
-  "url": "https://www.instagram.com/reel/example/",
+  "url": "https://example.com/article?ref=lumi",
   "text": "This made me think of you.",
   "destination": "up_next"
 }
 ```
+
+The backend must apply the same public-HTTPS validation before persisting the URL. Generic website responses keep the existing attachment shape:
+
+```json
+{
+  "type": "link",
+  "provider": "website",
+  "contentKind": "link",
+  "url": "https://example.com/article?ref=lumi",
+  "host": "example.com",
+  "ctaLabel": "Open website",
+  "openMode": "external"
+}
+```
+
+Instagram responses retain `provider: "instagram"` and their existing content kinds and CTA. Deploy this backend support before releasing the generalized Share Extension; no endpoint or storage-shape migration is required.
 
 Blank text is omitted so the backend may apply its default. The response decoder requires only the created `lumi` and `idempotentReplay`; unknown fields and the queue snapshot are ignored. Both `200` idempotent replay and `201` creation are successful. A `409` is shown as a safe nontechnical failure and never causes a new request ID.
 
@@ -100,7 +116,7 @@ xcodebuild -project luminecklace.xcodeproj -scheme lumiclip -destination 'platfo
 xcodebuild -project luminecklace.xcodeproj -scheme LumiShareExtension -destination 'platform=iOS Simulator,id=<device-id>' test
 ```
 
-For device verification, install and sign in to the full app first, open an Instagram post or Reel, choose **Share → Lumi**, edit the compose fields, and submit. Repeat for both queue destinations, multiple necklaces, no-authentication, inactive-necklace, and retry cases. Confirm the resulting queue row has an Instagram badge. Then invoke the necklace in both the App Clip and full app and verify the Instagram action appears only after the last word.
+For device verification, install and sign in to the full app first. Share both a Safari page and an Instagram post or Reel through **Share → Lumi**, edit the compose fields, and submit. Repeat for both queue destinations, multiple necklaces, no-authentication, inactive-necklace, and retry cases. Confirm website rows show the normalized hostname and Instagram rows retain their content kind. Then invoke the necklace in both the App Clip and full app and verify the correct action appears only after the last word.
 
 The extension intentionally provides a Close action instead of forcing the containing app open. Share Extensions cannot safely use `UIApplication.shared`, responder-chain URL-opening workarounds, or private APIs for that behavior.
 
@@ -119,7 +135,7 @@ The repository's build settings use the team-prefix-expanded Keychain group. The
 
 ## Privacy and compatibility
 
-Attachment data is optional throughout sender queues, recently revealed history, full-app recipient resolution, and App Clip resolution. Missing, malformed, unknown-provider, and future content-kind attachments never prevent the Lumi text from decoding. Only a validated external Instagram HTTPS attachment produces an action.
+Attachment data is optional throughout sender queues, recently revealed history, full-app recipient resolution, and App Clip resolution. Missing, malformed, unknown-provider, and future content-kind attachments never prevent the Lumi text from decoding. Only validated external Instagram or public website HTTPS attachments produce actions, and clients derive display hostnames from the validated URL rather than trusting attachment metadata.
 
 Sender networking redacts authentication bodies, all Lumi-write bodies, and all Lumi-write response bodies. The Share Extension does not log access tokens, URLs, message text, or raw private response content.
 

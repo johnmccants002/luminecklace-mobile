@@ -355,13 +355,11 @@ private struct LumiDetailsSheet: View {
                     Button("Done") { dismiss() }
                 }
             }
-            .sheet(isPresented: $showsCustomize) {
+            .fullScreenCover(isPresented: $showsCustomize) {
                 ExploreCustomizationSheet(
                     experience: experience,
                     onAdd: onCustomize
                 )
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
             }
         }
     }
@@ -386,9 +384,18 @@ private struct ExploreCustomizationSheet: View {
     let onAdd: (String, String?, QueueSection) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @FocusState private var isTextFocused: Bool
     @State private var primaryText: String
     @State private var secondaryText: String
     @State private var destination: QueueSection = .upNext
+    @State private var activeSlot: TextSlot = .primary
+    @State private var isTextEditing = false
+
+    private enum TextSlot: String {
+        case primary = "Message"
+        case secondary = "Second reveal"
+    }
 
     init(
         experience: ExploreLumi,
@@ -401,63 +408,270 @@ private struct ExploreCustomizationSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 20) {
-                    LumiExperienceRenderer(
-                        content: LumiExperienceContent(
-                            presetKey: experience.presetKey,
-                            primaryText: primaryText,
-                            secondaryText: secondaryText.nilIfBlank
-                        ),
-                        isActive: true
-                    )
-                    .frame(height: 300)
-                    .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+        ZStack {
+            LumiExperienceRenderer(
+                content: previewContent,
+                isActive: !isTextEditing,
+                showsMessage: !isTextEditing
+            )
+            .ignoresSafeArea()
 
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Message").font(.headline)
-                        TextField("Write your Lumi", text: $primaryText, axis: .vertical)
-                            .lineLimit(2...6)
-                            .textFieldStyle(.roundedBorder)
-                        Text("\(primaryText.count)/500")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
+            ambientCanvasDecoration
+                .ignoresSafeArea()
 
-                    if experience.secondaryText != nil {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Second reveal").font(.headline)
-                            TextField("Optional second message", text: $secondaryText, axis: .vertical)
-                                .lineLimit(2...4)
-                                .textFieldStyle(.roundedBorder)
-                            Text("\(secondaryText.count)/250")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-
-                    Picker("Destination", selection: $destination) {
-                        Text("Up Next").tag(QueueSection.upNext)
-                        Text("Reserve").tag(QueueSection.reserve)
-                    }
-                    .pickerStyle(.segmented)
-
-                    Text("Animation, timing, typography, and background are locked to this preset.")
-                        .font(.footnote).foregroundStyle(.secondary)
-
-                    Button("Add to \(destination.displayName)") {
-                        onAdd(primaryText.trimmingCharacters(in: .whitespacesAndNewlines), secondaryText.nilIfBlank, destination)
-                        dismiss()
-                    }
-                    .buttonStyle(PrimaryButtonStyle())
-                    .disabled(primaryText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || primaryText.count > 500 || secondaryText.count > 250)
-                }
-                .padding(20)
+            if isTextEditing {
+                textEditor
+                    .transition(.opacity)
+            } else {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { beginEditing(.primary) }
+                    .accessibilityLabel("Edit Lumi message")
+                    .accessibilityAddTraits(.isButton)
             }
-            .background(LumiTheme.Colors.pageBackground.ignoresSafeArea())
-            .navigationTitle("Customize")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+
+            VStack {
+                topBar
+                Spacer()
+            }
+
+            if !isTextEditing {
+                HStack {
+                    Spacer()
+                    lockedPresetRail
+                }
+                .padding(.trailing, 10)
+                .padding(.top, 132)
+                .padding(.bottom, 220)
+            }
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) { bottomControls }
+        .preferredColorScheme(.dark)
+        .onChange(of: isTextFocused) { _, focused in
+            guard !focused, isTextEditing else { return }
+            finishEditing()
+        }
+    }
+
+    private var previewContent: LumiExperienceContent {
+        LumiExperienceContent(
+            presetKey: experience.presetKey,
+            primaryText: primaryText,
+            secondaryText: secondaryText.nilIfBlank
+        )
+    }
+
+    private var topBar: some View {
+        HStack {
+            Button { dismiss() } label: {
+                Image(systemName: "xmark")
+                    .font(.body.weight(.semibold))
+                    .frame(width: 44, height: 44)
+                    .background(.black.opacity(0.34), in: Circle())
+                    .overlay(Circle().stroke(.white.opacity(0.12), lineWidth: 1))
+            }
+            .accessibilityLabel("Close composer")
+            .opacity(isTextEditing ? 0 : 1)
+            .allowsHitTesting(!isTextEditing)
+
+            Spacer()
+
+            if isTextEditing {
+                Text("\(activeText.count)/\(activeLimit)")
+                    .font(.caption.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(activeText.count > activeLimit ? Color.yellow : .white.opacity(0.82))
+
+                Button("Done", action: finishEditing)
+                    .font(.headline)
+                    .padding(.horizontal, 18)
+                    .frame(minHeight: 44)
+                    .background(.black.opacity(0.38), in: Capsule())
+                    .overlay(Capsule().stroke(.white.opacity(0.16), lineWidth: 1))
+            } else {
+                Button(action: addCustomizedLumi) {
+                    Text("Add")
+                        .font(.headline)
+                        .frame(minWidth: 72, minHeight: 44)
+                        .background(
+                            LinearGradient(
+                                colors: [LumiTheme.Colors.rose, Color(red: 1, green: 0.46, blue: 0.35)],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            ),
+                            in: Capsule()
+                        )
+                }
+                .disabled(!canAdd)
+                .opacity(canAdd ? 1 : 0.48)
+            }
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 20)
+        .padding(.top, 10)
+    }
+
+    private var textEditor: some View {
+        TextField(
+            "",
+            text: activeTextBinding,
+            prompt: Text(activeSlot == .primary ? "Write your Lumi" : "Write the second reveal")
+                .foregroundStyle(experience.foregroundColor.opacity(0.36)),
+            axis: .vertical
+        )
+        .lineLimit(1...12)
+        .font(activeFont)
+        .multilineTextAlignment(.center)
+        .foregroundStyle(experience.foregroundColor)
+        .tint(.white)
+        .focused($isTextFocused)
+        .textFieldStyle(.plain)
+        .padding(.horizontal, 68)
+        .padding(.top, 108)
+        .padding(.bottom, 84)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        .accessibilityLabel(activeSlot.rawValue)
+    }
+
+    private var lockedPresetRail: some View {
+        VStack(spacing: 6) {
+            ZStack {
+                Circle().fill(.black.opacity(0.46)).frame(width: 46, height: 46)
+                Image(systemName: "lock.fill").font(.system(size: 17, weight: .semibold))
+            }
+            Text("Preset").font(.caption2.weight(.semibold))
+        }
+        .foregroundStyle(.white)
+        .frame(width: 64)
+        .accessibilityLabel("Preset visuals locked")
+    }
+
+    private var bottomControls: some View {
+        VStack(spacing: 0) {
+            Capsule()
+                .fill(.white.opacity(0.28))
+                .frame(width: 40, height: 4)
+                .padding(.top, 7)
+
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(isTextEditing ? "Edit text" : "Customize")
+                        .font(.headline)
+                    Text(experience.title)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.62))
+                }
+                Spacer()
+                Label("Preset locked", systemImage: "lock.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.72))
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+            .padding(.bottom, 12)
+
+            HStack(spacing: 10) {
+                slotButton(.primary)
+                if experience.secondaryText != nil { slotButton(.secondary) }
+            }
+            .padding(.horizontal, 18)
+
+            if !isTextEditing {
+                Picker("Destination", selection: $destination) {
+                    Text("Up Next").tag(QueueSection.upNext)
+                    Text("Reserve").tag(QueueSection.reserve)
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 18)
+                .padding(.top, 12)
+            }
+        }
+        .padding(.bottom, 12)
+        .foregroundStyle(.white)
+        .background(.ultraThinMaterial)
+        .background(.black.opacity(0.68))
+        .clipShape(UnevenRoundedRectangle(topLeadingRadius: 24, topTrailingRadius: 24))
+        .overlay(alignment: .top) {
+            UnevenRoundedRectangle(topLeadingRadius: 24, topTrailingRadius: 24)
+                .stroke(.white.opacity(0.1), lineWidth: 1)
+        }
+    }
+
+    private func slotButton(_ slot: TextSlot) -> some View {
+        let selected = activeSlot == slot
+        return Button {
+            beginEditing(slot)
+        } label: {
+            Label(slot.rawValue, systemImage: slot == .primary ? "text.quote" : "sparkles")
+                .font(.subheadline.weight(.semibold))
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .background(selected ? Color.white : Color.white.opacity(0.08), in: Capsule())
+                .foregroundStyle(selected ? Color.black : Color.white)
+                .overlay(Capsule().stroke(.white.opacity(selected ? 1 : 0.16), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var ambientCanvasDecoration: some View {
+        LinearGradient(colors: [.clear, .black.opacity(0.28)], startPoint: .center, endPoint: .bottom)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+
+    private var activeText: String { activeSlot == .primary ? primaryText : secondaryText }
+    private var activeLimit: Int { activeSlot == .primary ? 500 : 250 }
+    private var activeFont: Font {
+        if activeSlot == .secondary { return .system(size: 39, weight: .semibold, design: .rounded) }
+        switch experience.presetKey {
+        case .classicWordRise, .goldenHour:
+            return .system(size: 40, weight: .medium, design: .serif)
+        case .midnight:
+            return .system(size: 38, design: .serif)
+        case .proudOfYou:
+            return .system(size: 49, weight: .bold, design: .rounded)
+        case .playful:
+            return .system(size: 38, weight: .heavy, design: .rounded)
+        case .calm:
+            return .system(size: 36, weight: .light, design: .rounded)
+        case .memory:
+            return .system(size: 37, weight: .medium, design: .serif)
+        case .timedSurprise:
+            return .system(size: 25, weight: .medium, design: .rounded)
+        }
+    }
+
+    private var activeTextBinding: Binding<String> {
+        Binding(
+            get: { activeText },
+            set: { value in
+                if activeSlot == .primary {
+                    primaryText = String(value.prefix(500))
+                } else {
+                    secondaryText = String(value.prefix(250))
+                }
+            }
+        )
+    }
+
+    private var canAdd: Bool {
+        let primary = primaryText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !primary.isEmpty && primary.count <= 500 && secondaryText.count <= 250
+    }
+
+    private func beginEditing(_ slot: TextSlot) {
+        activeSlot = slot
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.24)) { isTextEditing = true }
+        Task { await Task.yield(); isTextFocused = true }
+    }
+
+    private func finishEditing() {
+        isTextFocused = false
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.24)) { isTextEditing = false }
+    }
+
+    private func addCustomizedLumi() {
+        guard canAdd else { return }
+        onAdd(primaryText.trimmingCharacters(in: .whitespacesAndNewlines), secondaryText.nilIfBlank, destination)
+        dismiss()
     }
 }
 

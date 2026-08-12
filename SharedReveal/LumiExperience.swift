@@ -48,6 +48,23 @@ nonisolated struct LumiExperienceContent: Hashable, Sendable {
 struct LumiExperienceRenderer: View {
     let content: LumiExperienceContent
     let isActive: Bool
+    let showsMessage: Bool
+
+    init(content: LumiExperienceContent, isActive: Bool) {
+        self.content = content
+        self.isActive = isActive
+        showsMessage = true
+    }
+
+    init(
+        content: LumiExperienceContent,
+        isActive: Bool,
+        showsMessage: Bool
+    ) {
+        self.content = content
+        self.isActive = isActive
+        self.showsMessage = showsMessage
+    }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var phase = 0
@@ -58,9 +75,11 @@ struct LumiExperienceRenderer: View {
         ZStack {
             background
             atmosphere
-            message
-                .padding(.horizontal, 34)
-                .frame(maxWidth: 620)
+            if showsMessage {
+                message
+                    .padding(.horizontal, 34)
+                    .frame(maxWidth: 620)
+            }
         }
         .clipped()
         .accessibilityElement(children: .ignore)

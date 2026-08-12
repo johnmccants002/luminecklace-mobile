@@ -27,3 +27,5 @@ table scaffolding, RLS, and base SQL functions for the sender-first flow.
   advancement behavior.
 - `BACKEND_TEXT_LAYOUT_HANDOFF.md` defines the curated composer presentation
   input, persistence, validation, and response contract.
+- `BACKEND_PUSH_HANDOFF.md` defines authenticated APNs device registration,
+  sender preferences, event delivery, privacy, and operational behavior.
