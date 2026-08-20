@@ -65,13 +65,14 @@ struct SenderService {
         for root in JSONLookup.rootCandidates(from: payload) {
             if let array = JSONLookup.array(root, keys: ["necklaces", "items", "data"]) {
                 let necklaces = array.compactMap(mapNecklace(from:))
-                if !necklaces.isEmpty {
-                    return markEquipped(for: necklaces)
+                guard necklaces.count == array.count else {
+                    throw APIError.invalidPayload
                 }
+                return markEquipped(for: necklaces)
             }
         }
 
-        return []
+        throw APIError.invalidPayload
     }
 
     func addLumi(
@@ -201,7 +202,9 @@ struct SenderService {
     }
 
     func mapNecklace(from dict: [String: Any]) -> NecklaceTag? {
-        let id = JSONLookup.string(dict, keys: ["id", "_id", "necklaceId", "tagId"]) ?? UUID().uuidString
+        guard let id = JSONLookup.string(dict, keys: ["id", "_id", "necklaceId", "tagId"]) else {
+            return nil
+        }
         let name = JSONLookup.string(dict, keys: ["name", "label", "necklaceName"]) ?? "Lumi Necklace"
         let sku = JSONLookup.string(dict, keys: ["sku"]) ?? "LUMI-UNKNOWN"
         let themeKey = JSONLookup.string(dict, keys: ["themeKey", "theme"]) ?? "heart"
@@ -214,11 +217,30 @@ struct SenderService {
             necklaceId: id,
             fallbackThemeKey: themeKey
         )
-        let legacyQueue = JSONLookup.array(dict, keys: ["queue", "messages", "lumis"])?.compactMap {
+        let hasExplicitQueue = dict["queueSnapshot"] != nil
+            || dict["snapshot"] != nil
+            || dict["queue"] is [String: Any]
+        guard !hasExplicitQueue || explicitSnapshot != nil else {
+            return nil
+        }
+
+        let legacyQueueKey = ["queue", "messages", "lumis"].first { key in
+            guard dict[key] != nil else { return false }
+            return key != "queue" || !(dict[key] is [String: Any])
+        }
+        var legacyQueue: [Message] = []
+        if let legacyQueueKey {
+            guard let payloads = dict[legacyQueueKey] as? [[String: Any]] else { return nil }
+            legacyQueue = payloads.compactMap { mapLumi(from: $0, fallbackThemeKey: themeKey) }
+            guard legacyQueue.count == payloads.count else { return nil }
+        }
+
+        let hasLegacyCurrent = dict["nextLumi"] != nil
+        let legacyCurrent = (dict["nextLumi"] as? [String: Any]).flatMap {
             mapLumi(from: $0, fallbackThemeKey: themeKey)
-        } ?? []
-        let legacyCurrent = JSONLookup.dictionary(dict, keys: ["nextLumi"]).flatMap {
-            mapLumi(from: $0, fallbackThemeKey: themeKey)
+        }
+        guard !hasLegacyCurrent || dict["nextLumi"] is NSNull || legacyCurrent != nil else {
+            return nil
         }
         let current = explicitSnapshot?.current ?? legacyCurrent ?? legacyQueue.first
         let queuedLumis = explicitSnapshot?.upNext
@@ -226,10 +248,24 @@ struct SenderService {
         let availableLumiCount = explicitSnapshot?.continuousSequence.count
             ?? (dict["availableLumiCount"] as? Int)
             ?? ((current == nil ? 0 : 1) + queuedLumis.count)
-        let recentlyRevealed = JSONLookup.array(dict, keys: ["recentlyRevealed"])?.compactMap {
+        let revealedPayloads = JSONLookup.array(dict, keys: ["recentlyRevealed"])
+        let recentlyRevealed = revealedPayloads?.compactMap {
             mapRevealedLumi(from: $0, fallbackThemeKey: themeKey)
         } ?? []
         let reserve = JSONLookup.dictionary(dict, keys: ["reserve"]).flatMap(mapReserveSummary(from:))
+        let hasLegacyQueueData = legacyQueueKey != nil || hasLegacyCurrent
+        let compatibleQueueSnapshot: QueueSnapshot?
+        if hasLegacyQueueData {
+            compatibleQueueSnapshot = try? QueueSnapshot(
+                necklaceId: id,
+                revision: 0,
+                current: current,
+                upNext: queuedLumis,
+                reserve: []
+            )
+        } else {
+            compatibleQueueSnapshot = nil
+        }
         return NecklaceTag(
             id: id,
             name: name,
@@ -244,14 +280,7 @@ struct SenderService {
             queuedLumis: queuedLumis,
             recentlyRevealed: recentlyRevealed,
             reserve: reserve,
-            queueSnapshot: explicitSnapshot
-                ?? (try? QueueSnapshot(
-                    necklaceId: id,
-                    revision: 0,
-                    current: current,
-                    upNext: queuedLumis,
-                    reserve: []
-                ))
+            queueSnapshot: explicitSnapshot ?? compatibleQueueSnapshot
         )
     }
 
@@ -285,6 +314,9 @@ struct SenderService {
         }
 
         let currentPayload = queue["current"] as? [String: Any]
+        let hasMalformedCurrent = queue["current"] != nil
+            && !(queue["current"] is NSNull)
+            && currentPayload == nil
         let current = currentPayload.flatMap {
             mapLumi(from: $0, fallbackThemeKey: fallbackThemeKey)
         }
@@ -295,7 +327,8 @@ struct SenderService {
             mapLumi(from: $0, fallbackThemeKey: fallbackThemeKey)
         }
 
-        guard upNext.count == upNextPayload.count,
+        guard !hasMalformedCurrent,
+              upNext.count == upNextPayload.count,
               reserve.count == reservePayload.count,
               currentPayload == nil || current != nil else {
             return nil
@@ -314,11 +347,11 @@ struct SenderService {
         from dict: [String: Any],
         fallbackThemeKey: String
     ) -> Message? {
-        guard let text = JSONLookup.string(dict, keys: ["text"]) else {
+        guard let id = JSONLookup.string(dict, keys: ["id"]),
+              let text = JSONLookup.string(dict, keys: ["text"]) else {
             return nil
         }
 
-        let id = JSONLookup.string(dict, keys: ["id"]) ?? UUID().uuidString
         let presentation = JSONLookup.dictionary(dict, keys: ["presentation"]) ?? [:]
         let themeKey = JSONLookup.string(presentation, keys: ["theme"]) ?? fallbackThemeKey
         let animationKey = JSONLookup.string(presentation, keys: ["animation"]) ?? "breathe"

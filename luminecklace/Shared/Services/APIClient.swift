@@ -54,6 +54,12 @@ enum APIError: LocalizedError {
     }
 }
 
+enum LocalSessionState: Equatable {
+    case available
+    case missing
+    case unavailable(String)
+}
+
 nonisolated final class TokenStore: @unchecked Sendable {
     static let legacyKey = "lumi_access_token"
 
@@ -70,25 +76,7 @@ nonisolated final class TokenStore: @unchecked Sendable {
 
     var accessToken: String? {
         get {
-            if let token = try? sharedStore.read(), !token.isEmpty {
-                return token
-            }
-
-            guard let legacyToken = defaults.string(forKey: Self.legacyKey),
-                  !legacyToken.isEmpty else {
-                return nil
-            }
-
-            do {
-                try sharedStore.write(legacyToken)
-                guard try sharedStore.read() == legacyToken else {
-                    return legacyToken
-                }
-                defaults.removeObject(forKey: Self.legacyKey)
-            } catch {
-                // Keep the legacy value until migration can be verified.
-            }
-            return legacyToken
+            try? readAccessToken()
         }
         set {
             if let newValue, !newValue.isEmpty {
@@ -98,6 +86,51 @@ nonisolated final class TokenStore: @unchecked Sendable {
                 defaults.removeObject(forKey: Self.legacyKey)
             }
         }
+    }
+
+    var localSessionState: LocalSessionState {
+        do {
+            return try readAccessToken() == nil ? .missing : .available
+        } catch {
+            return .unavailable(error.localizedDescription)
+        }
+    }
+
+    func requireAccessToken() throws -> String {
+        guard let token = try readAccessToken(), !token.isEmpty else {
+            throw APIError.unauthorized
+        }
+        return token
+    }
+
+    private func readAccessToken() throws -> String? {
+        do {
+            if let token = try sharedStore.read(), !token.isEmpty {
+                return token
+            }
+        } catch {
+            guard let legacyToken = defaults.string(forKey: Self.legacyKey),
+                  !legacyToken.isEmpty else {
+                throw error
+            }
+            return legacyToken
+        }
+
+        guard let legacyToken = defaults.string(forKey: Self.legacyKey),
+              !legacyToken.isEmpty else {
+            return nil
+        }
+
+        do {
+            try sharedStore.write(legacyToken)
+            guard try sharedStore.read() == legacyToken else {
+                return legacyToken
+            }
+            defaults.removeObject(forKey: Self.legacyKey)
+        } catch {
+            // Keep the legacy value until migration can be verified.
+        }
+        return legacyToken
     }
 }
 
@@ -139,9 +172,7 @@ final class APIClient {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
         if authorized {
-            guard let token = tokenStore.accessToken, !token.isEmpty else {
-                throw APIError.unauthorized
-            }
+            let token = try tokenStore.requireAccessToken()
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         if let body {
@@ -187,8 +218,8 @@ final class APIClient {
             print("[API] \(path) status=\(httpResponse.statusCode) body=\(responseBody)")
         }
 
-        let jsonObject = (try? JSONSerialization.jsonObject(with: data)) ?? [:]
-        let jsonDict = jsonObject as? [String: Any] ?? [:]
+        let jsonObject = try? JSONSerialization.jsonObject(with: data)
+        let errorPayload = jsonObject as? [String: Any] ?? [:]
 
         guard (200...299).contains(httpResponse.statusCode) else {
             if httpResponse.statusCode == 401 {
@@ -196,17 +227,23 @@ final class APIClient {
                     throw APIError.unauthorized
                 }
                 throw APIError.authenticationFailed(
-                    Self.extractMessage(from: jsonDict) ?? "Invalid email or password."
+                    Self.extractMessage(from: errorPayload) ?? "Invalid email or password."
                 )
             }
             if httpResponse.statusCode == 409 {
-                throw APIError.conflict(jsonDict)
+                throw APIError.conflict(errorPayload)
             }
 
-            let message = Self.extractMessage(from: jsonDict) ?? HTTPURLResponse.localizedString(forStatusCode: httpResponse.statusCode)
+            let message = Self.extractMessage(from: errorPayload) ?? HTTPURLResponse.localizedString(forStatusCode: httpResponse.statusCode)
             throw APIError.serverError(statusCode: httpResponse.statusCode, message: message)
         }
 
+        if httpResponse.statusCode == 204 || data.isEmpty {
+            return [:]
+        }
+        guard let jsonDict = jsonObject as? [String: Any] else {
+            throw APIError.invalidPayload
+        }
         return jsonDict
     }
 
@@ -263,9 +300,7 @@ final class APIClient {
             request.httpBody = try JSONEncoder().encode(body)
         }
         if authorized {
-            guard let token = tokenStore.accessToken, !token.isEmpty else {
-                throw APIError.unauthorized
-            }
+            let token = try tokenStore.requireAccessToken()
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
 

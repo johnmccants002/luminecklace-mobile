@@ -15,47 +15,48 @@ struct ExploreFeedView: View {
     init(appState: AppState) {
         self.appState = appState
         _viewModel = StateObject(wrappedValue: ExploreViewModel(appState: appState))
-        _activeExperienceID = State(initialValue: ExploreLumi.prototypes.first?.id)
+        _activeExperienceID = State(initialValue: nil)
     }
 
     private var experiences: [ExploreLumi] {
-        let catalog = viewModel.messages.map(ExploreLumi.init(template:))
-        if !catalog.isEmpty { return catalog }
-#if DEBUG
-        return ExploreLumi.prototypes
-#else
-        return []
-#endif
+        viewModel.messages.map(ExploreLumi.init(template:))
     }
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            GeometryReader { proxy in
-                ScrollView(.vertical) {
-                    LazyVStack(spacing: 0) {
-                        ForEach(experiences) { experience in
-                            ExploreExperiencePage(
-                                experience: experience,
-                                topSafeAreaInset: proxy.safeAreaInsets.top,
-                                isActive: activeExperienceID == experience.id,
-                                isSaved: savedExperienceIDs.contains(experience.id),
-                                isAdded: isExperienceAdded(experience.id),
-                                onSave: { toggleSaved(experience) },
-                                onAdd: { addToNecklace(experience) },
-                                onShowDetails: { selectedExperience = experience }
-                            )
-                            .containerRelativeFrame(.vertical)
-                            .id(experience.id)
-                        }
-                    }
-                    .scrollTargetLayout()
+            switch viewModel.state {
+            case .idle, .loading:
+                ExploreCatalogStatusView(
+                    title: "Loading Explore…",
+                    message: "Finding Lumis for your necklace.",
+                    systemImage: "sparkles",
+                    showsProgress: true
+                )
+            case .empty:
+                ExploreCatalogStatusView(
+                    title: "Nothing here yet",
+                    message: "New Lumi experiences will appear here when they’re available.",
+                    systemImage: "heart.slash"
+                )
+            case let .failed(message):
+                ExploreCatalogStatusView(
+                    title: "Explore couldn’t load",
+                    message: message,
+                    systemImage: "wifi.exclamationmark",
+                    retryAction: { Task { await viewModel.reload() } }
+                )
+            case .loaded:
+                if experiences.isEmpty {
+                    ExploreCatalogStatusView(
+                        title: "Nothing here yet",
+                        message: "New Lumi experiences will appear here when they’re available.",
+                        systemImage: "heart.slash"
+                    )
+                } else {
+                    feed
                 }
-                .scrollIndicators(.hidden)
-                .scrollTargetBehavior(.paging)
-                .scrollPosition(id: $activeExperienceID)
-                .ignoresSafeArea(edges: .top)
             }
 
             if toastExperienceID != nil {
@@ -117,6 +118,34 @@ struct ExploreFeedView: View {
         }
     }
 
+    private var feed: some View {
+        GeometryReader { proxy in
+            ScrollView(.vertical) {
+                LazyVStack(spacing: 0) {
+                    ForEach(experiences) { experience in
+                        ExploreExperiencePage(
+                            experience: experience,
+                            topSafeAreaInset: proxy.safeAreaInsets.top,
+                            isActive: activeExperienceID == experience.id,
+                            isSaved: savedExperienceIDs.contains(experience.id),
+                            isAdded: isExperienceAdded(experience.id),
+                            onSave: { toggleSaved(experience) },
+                            onAdd: { addToNecklace(experience) },
+                            onShowDetails: { selectedExperience = experience }
+                        )
+                        .containerRelativeFrame(.vertical)
+                        .id(experience.id)
+                    }
+                }
+                .scrollTargetLayout()
+            }
+            .scrollIndicators(.hidden)
+            .scrollTargetBehavior(.paging)
+            .scrollPosition(id: $activeExperienceID)
+            .ignoresSafeArea(edges: .top)
+        }
+    }
+
     private func toggleSaved(_ experience: ExploreLumi) {
         if savedExperienceIDs.contains(experience.id) {
             savedExperienceIDs.remove(experience.id)
@@ -167,6 +196,50 @@ struct ExploreFeedView: View {
                     }
                 }
             }
+        }
+    }
+}
+
+private struct ExploreCatalogStatusView: View {
+    let title: String
+    let message: String
+    let systemImage: String
+    var showsProgress = false
+    var retryAction: (() -> Void)?
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 18) {
+                Spacer(minLength: 120)
+                if showsProgress {
+                    ProgressView()
+                        .tint(.white)
+                        .controlSize(.large)
+                } else {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 42, weight: .light))
+                        .accessibilityHidden(true)
+                }
+                Text(title)
+                    .font(.title2.weight(.bold))
+                Text(message)
+                    .font(.body)
+                    .foregroundStyle(.white.opacity(0.72))
+                    .multilineTextAlignment(.center)
+                if let retryAction {
+                    Button("Retry", action: retryAction)
+                        .font(.headline)
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 28)
+                        .frame(minHeight: 50)
+                        .background(.white, in: Capsule())
+                }
+                Spacer(minLength: 80)
+            }
+            .foregroundStyle(.white)
+            .frame(maxWidth: 420)
+            .padding(.horizontal, 28)
+            .frame(maxWidth: .infinity)
         }
     }
 }
@@ -511,25 +584,30 @@ private struct ExploreCustomizationSheet: View {
     }
 
     private var textEditor: some View {
-        TextField(
-            "",
-            text: activeTextBinding,
-            prompt: Text(activeSlot == .primary ? "Write your Lumi" : "Write the second reveal")
-                .foregroundStyle(experience.foregroundColor.opacity(0.36)),
-            axis: .vertical
-        )
-        .lineLimit(1...12)
-        .font(activeFont)
-        .multilineTextAlignment(.center)
-        .foregroundStyle(experience.foregroundColor)
-        .tint(.white)
-        .focused($isTextFocused)
-        .textFieldStyle(.plain)
+        ZStack(alignment: .topLeading) {
+            if activeText.isEmpty {
+                Text(activeSlot == .primary ? "Write your Lumi" : "Write the second reveal")
+                    .font(activeFont)
+                    .foregroundStyle(experience.foregroundColor.opacity(0.36))
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 8)
+                    .allowsHitTesting(false)
+            }
+
+            TextEditor(text: activeTextBinding)
+                .scrollContentBackground(.hidden)
+                .font(activeFont)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(experience.foregroundColor)
+                .tint(.white)
+                .focused($isTextFocused)
+                .accessibilityLabel(activeSlot.rawValue)
+        }
         .padding(.horizontal, 68)
         .padding(.top, 108)
         .padding(.bottom, 84)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-        .accessibilityLabel(activeSlot.rawValue)
     }
 
     private var lockedPresetRail: some View {
@@ -620,22 +698,24 @@ private struct ExploreCustomizationSheet: View {
     private var activeText: String { activeSlot == .primary ? primaryText : secondaryText }
     private var activeLimit: Int { activeSlot == .primary ? 500 : 250 }
     private var activeFont: Font {
-        if activeSlot == .secondary { return .system(size: 39, weight: .semibold, design: .rounded) }
+        if activeSlot == .secondary {
+            return .system(.largeTitle, design: .rounded, weight: .semibold)
+        }
         switch experience.presetKey {
         case .classicWordRise, .goldenHour:
-            return .system(size: 40, weight: .medium, design: .serif)
+            return .system(.largeTitle, design: .serif, weight: .medium)
         case .midnight:
-            return .system(size: 38, design: .serif)
+            return .system(.largeTitle, design: .serif)
         case .proudOfYou:
-            return .system(size: 49, weight: .bold, design: .rounded)
+            return .system(.largeTitle, design: .rounded, weight: .bold)
         case .playful:
-            return .system(size: 38, weight: .heavy, design: .rounded)
+            return .system(.largeTitle, design: .rounded, weight: .heavy)
         case .calm:
-            return .system(size: 36, weight: .light, design: .rounded)
+            return .system(.largeTitle, design: .rounded, weight: .light)
         case .memory:
-            return .system(size: 37, weight: .medium, design: .serif)
+            return .system(.largeTitle, design: .serif, weight: .medium)
         case .timedSurprise:
-            return .system(size: 25, weight: .medium, design: .rounded)
+            return .system(.title2, design: .rounded, weight: .medium)
         }
     }
 

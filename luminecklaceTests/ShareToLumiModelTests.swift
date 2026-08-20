@@ -161,6 +161,26 @@ final class ShareToLumiModelTests: XCTestCase {
         XCTAssertEqual(defaults.string(forKey: TokenStore.legacyKey), "legacy-token")
     }
 
+    func testKeychainReadFailureIsNotTreatedAsSignedOut() {
+        let suite = "ShareToLumiModelTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let keychain = FakeKeychain(copyStatus: errSecInteractionNotAllowed)
+        let store = SharedAuthTokenStore(keychain: keychain, accessGroup: "test.group")
+        let tokenStore = TokenStore(sharedStore: store, defaults: defaults)
+
+        switch tokenStore.localSessionState {
+        case .unavailable:
+            break
+        case .available, .missing:
+            XCTFail("A temporary Keychain failure must remain recoverable.")
+        }
+
+        XCTAssertThrowsError(try tokenStore.requireAccessToken()) { error in
+            XCTAssertTrue(error is SharedAuthTokenStoreError)
+        }
+    }
+
     private func makeAttachment(
         url: String = "https://www.instagram.com/reel/example/",
         provider: String = "instagram",
@@ -213,12 +233,20 @@ final class ShareToLumiModelTests: XCTestCase {
 private final class FakeKeychain: KeychainOperating, @unchecked Sendable {
     private var data: Data?
     private let addStatus: OSStatus
+    private let copyStatus: OSStatus?
 
-    init(addStatus: OSStatus = errSecSuccess) {
+    init(
+        addStatus: OSStatus = errSecSuccess,
+        copyStatus: OSStatus? = nil
+    ) {
         self.addStatus = addStatus
+        self.copyStatus = copyStatus
     }
 
     func copyMatching(_ query: CFDictionary) -> (status: OSStatus, data: Data?) {
+        if let copyStatus {
+            return (copyStatus, nil)
+        }
         guard let data else { return (errSecItemNotFound, nil) }
         return (errSecSuccess, data)
     }

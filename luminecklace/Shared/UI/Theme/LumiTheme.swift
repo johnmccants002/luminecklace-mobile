@@ -32,19 +32,32 @@ enum LumiTheme {
 
     enum Typography {
         static func display(_ size: CGFloat) -> Font {
-            .system(size: size, weight: .medium, design: .serif)
+            .system(textStyle(for: size), design: .serif, weight: .medium)
         }
 
         static func headline(_ size: CGFloat = 22) -> Font {
-            .system(size: size, weight: .medium, design: .serif)
+            .system(textStyle(for: size), design: .serif, weight: .medium)
         }
 
         static func body(_ size: CGFloat = 16) -> Font {
-            .system(size: size, weight: .regular, design: .rounded)
+            .system(textStyle(for: size), design: .rounded, weight: .regular)
         }
 
         static func mono(_ size: CGFloat = 18) -> Font {
-            .system(size: size, weight: .semibold, design: .monospaced)
+            .system(textStyle(for: size), design: .monospaced, weight: .semibold)
+        }
+
+        private static func textStyle(for size: CGFloat) -> Font.TextStyle {
+            switch size {
+            case 34...: .largeTitle
+            case 28..<34: .title
+            case 24..<28: .title2
+            case 20..<24: .title3
+            case 17..<20: .body
+            case 15..<17: .callout
+            case 13..<15: .footnote
+            default: .caption
+            }
         }
     }
 }

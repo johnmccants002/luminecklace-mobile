@@ -50,6 +50,10 @@ nonisolated struct ShareNecklaceListResponse: Decodable {
     }
 
     init(from decoder: Decoder) throws {
+        if let array = try? decoder.singleValueContainer().decode([ShareNecklace].self) {
+            necklaces = array
+            return
+        }
         let container = try decoder.container(keyedBy: CodingKeys.self)
         if let direct = (try? container.decode([ShareNecklace].self, forKey: .necklaces))
             ?? (try? container.decode([ShareNecklace].self, forKey: .items))
@@ -63,11 +67,12 @@ nonisolated struct ShareNecklaceListResponse: Decodable {
             necklaces = nested.necklaces
             return
         }
-        if let array = try? decoder.singleValueContainer().decode([ShareNecklace].self) {
-            necklaces = array
-            return
-        }
-        necklaces = []
+        throw DecodingError.dataCorrupted(
+            .init(
+                codingPath: decoder.codingPath,
+                debugDescription: "Expected a recognized necklace collection."
+            )
+        )
     }
 }
 

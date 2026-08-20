@@ -51,7 +51,7 @@ struct ExploreLumi: Identifiable, Hashable {
         }
     }
 
-    init(template: MessageTemplate) {
+    nonisolated init(template: MessageTemplate) {
         id = template.id
         title = template.title ?? template.text
         message = template.text
@@ -83,6 +83,7 @@ struct ExploreLumi: Identifiable, Hashable {
     }
 }
 
+#if DEBUG
 extension ExploreLumi {
     static let prototypes: [ExploreLumi] = [
         .init(id: "golden-hour", title: "Golden Hour", message: "Just a reminder that someone is thinking about you.", secondaryText: nil, category: "Thinking of You", mood: "Warm", durationSeconds: 8, presetKey: .goldenHour),
@@ -94,3 +95,4 @@ extension ExploreLumi {
         .init(id: "surprise", title: "Something to Tell You", message: "I have something to tell you…", secondaryText: "I'm really glad you're in my life.", category: "Just Because", mood: "Heartfelt", durationSeconds: 10, presetKey: .timedSurprise)
     ]
 }
+#endif

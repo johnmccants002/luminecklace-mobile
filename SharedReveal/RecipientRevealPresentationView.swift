@@ -33,7 +33,8 @@ struct RecipientRevealPresentationView: View {
                             primaryText: lumi.text,
                             secondaryText: lumi.secondaryText
                         ),
-                        isActive: true
+                        isActive: true,
+                        layer: .backgroundOnly
                     )
                     .ignoresSafeArea()
                 } else {
@@ -364,10 +365,15 @@ private struct RecipientMessageView: View {
                         if lumi.experiencePresetKey == .classicWordRise {
                             revealedText
                         } else {
-                            Color.clear
-                                .accessibilityLabel(
-                                    "Lumi message. \(lumi.text) \(lumi.secondaryText ?? "")"
-                                )
+                            LumiExperienceRenderer(
+                                content: LumiExperienceContent(
+                                    presetKey: lumi.experiencePresetKey,
+                                    primaryText: lumi.text,
+                                    secondaryText: lumi.secondaryText
+                                ),
+                                isActive: true,
+                                layer: .messageOnly
+                            )
                         }
                     }
                         .font(
@@ -402,7 +408,9 @@ private struct RecipientMessageView: View {
                             )
                         )
                         .padding(.top, 32)
-                        .accessibilityLabel("Lumi message. \(lumi.text)")
+                        .accessibilityLabel(
+                            "Lumi message. \(lumi.text) \(lumi.secondaryText ?? "")"
+                        )
 
                     if showsAttachmentAction,
                        let attachment = lumi.attachment,

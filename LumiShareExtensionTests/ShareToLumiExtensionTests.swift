@@ -280,6 +280,34 @@ final class ShareLumiServiceTests: XCTestCase {
         XCTAssertNil(try tokenStore.read())
     }
 
+    func testMalformedNecklaceListsFailInsteadOfLookingEmpty() async {
+        let tokenStore = makeTokenStore(token: "token")
+        let service = ShareLumiService(
+            baseURL: URL(string: "https://example.test")!,
+            session: makeSession(),
+            tokenStore: tokenStore
+        )
+
+        for body in [
+            #"{"status":"ok"}"#,
+            #"{"necklaces":[{"name":"Missing ID"}]}"#,
+            #"{"necklaces":[{"id":"valid"},{"name":"Partially malformed"}]}"#
+        ] {
+            URLProtocolStub.handler = { Self.response($0, status: 200, body: body) }
+            await XCTAssertThrowsShareError(.invalidResponse) {
+                _ = try await service.fetchEligibleNecklaces()
+            }
+        }
+
+        URLProtocolStub.handler = { Self.response($0, status: 200, body: #"{"necklaces":[]}"#) }
+        do {
+            let necklaces = try await service.fetchEligibleNecklaces()
+            XCTAssertTrue(necklaces.isEmpty)
+        } catch {
+            XCTFail("A real empty collection should remain valid: \(error)")
+        }
+    }
+
     private func makeSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [URLProtocolStub.self]

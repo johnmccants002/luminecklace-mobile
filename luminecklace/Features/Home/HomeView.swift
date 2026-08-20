@@ -78,54 +78,7 @@ struct HomeView: View {
                         .opacity(showHeader ? 1 : 0)
                         .offset(y: showHeader ? 0 : 10)
 
-                    featuredCard
-                        .opacity(showHero ? 1 : 0)
-                        .offset(y: showHero ? 0 : 14)
-
-                    sectionHeader(
-                        title: "Up next",
-                        icon: "sparkles",
-                        actionTitle: "Edit Up Next",
-                        action: { viewModel.openUpNextEditor() }
-                    )
-                    .opacity(showSections ? 1 : 0)
-                    .offset(y: showSections ? 0 : 12)
-
-                    upNextCard
-                        .opacity(showSections ? 1 : 0)
-                        .offset(y: showSections ? 0 : 12)
-
-                    sectionHeader(
-                        title: "Reserve",
-                        icon: "sparkles",
-                        actionTitle: "Edit Reserve",
-                        action: { viewModel.openReserveEditor() }
-                    )
-                    .opacity(showSections ? 1 : 0)
-                    .offset(y: showSections ? 0 : 12)
-
-                    QueueHomeSummaryCard(
-                        messages: reserveItems,
-                        emptyTitle: "Reserve is empty",
-                        emptyDetail: "Add messages here to keep them behind Up Next.",
-                        onOpen: { viewModel.openReserveEditor() }
-                    )
-                    .opacity(showSections ? 1 : 0)
-                    .offset(y: showSections ? 0 : 12)
-
-                    sectionHeader(
-                        title: "Revealed recently",
-                        icon: "sparkles",
-                        actionTitle: nil,
-                        action: nil
-                    )
-                    .id("recently-revealed")
-                    .opacity(showSections ? 1 : 0)
-                    .offset(y: showSections ? 0 : 12)
-
-                    recentActivityCard
-                        .opacity(showSections ? 1 : 0)
-                        .offset(y: showSections ? 0 : 12)
+                    queueContent
 
                     Spacer(minLength: 4)
                 }
@@ -175,6 +128,80 @@ struct HomeView: View {
         }
     }
 
+    @ViewBuilder
+    private var queueContent: some View {
+        switch viewModel.queuePresentation {
+        case .loading:
+            HomeQueueStatusCard(
+                title: "Loading your Lumis…",
+                detail: "Checking what’s waiting in your necklace.",
+                systemImage: "sparkles",
+                showsProgress: true
+            )
+        case let .unavailable(message):
+            HomeQueueStatusCard(
+                title: "Your queue couldn’t load",
+                detail: message,
+                systemImage: "wifi.exclamationmark",
+                retryAction: { Task { await viewModel.retryQueueLoad() } }
+            )
+        case .loaded:
+            loadedQueueContent
+        }
+    }
+
+    @ViewBuilder
+    private var loadedQueueContent: some View {
+        featuredCard
+            .opacity(showHero ? 1 : 0)
+            .offset(y: showHero ? 0 : 14)
+
+        sectionHeader(
+            title: "Up next",
+            icon: "sparkles",
+            actionTitle: "Edit Up Next",
+            action: { viewModel.openUpNextEditor() }
+        )
+        .opacity(showSections ? 1 : 0)
+        .offset(y: showSections ? 0 : 12)
+
+        upNextCard
+            .opacity(showSections ? 1 : 0)
+            .offset(y: showSections ? 0 : 12)
+
+        sectionHeader(
+            title: "Reserve",
+            icon: "sparkles",
+            actionTitle: "Edit Reserve",
+            action: { viewModel.openReserveEditor() }
+        )
+        .opacity(showSections ? 1 : 0)
+        .offset(y: showSections ? 0 : 12)
+
+        QueueHomeSummaryCard(
+            messages: reserveItems,
+            emptyTitle: "Reserve is empty",
+            emptyDetail: "Add messages here to keep them behind Up Next.",
+            onOpen: { viewModel.openReserveEditor() }
+        )
+        .opacity(showSections ? 1 : 0)
+        .offset(y: showSections ? 0 : 12)
+
+        sectionHeader(
+            title: "Revealed recently",
+            icon: "sparkles",
+            actionTitle: nil,
+            action: nil
+        )
+        .id("recently-revealed")
+        .opacity(showSections ? 1 : 0)
+        .offset(y: showSections ? 0 : 12)
+
+        recentActivityCard
+            .opacity(showSections ? 1 : 0)
+            .offset(y: showSections ? 0 : 12)
+    }
+
     private var background: some View {
         ZStack {
             Color(red: 0.988, green: 0.980, blue: 0.972).ignoresSafeArea()
@@ -214,7 +241,7 @@ struct HomeView: View {
                     .foregroundStyle(Color(red: 0.93, green: 0.47, blue: 0.55))
 
                 Text("Lumi")
-                    .font(.system(size: 28, weight: .semibold, design: .serif))
+                    .font(.system(.title, design: .serif, weight: .semibold))
                     .foregroundStyle(Color(red: 0.14, green: 0.15, blue: 0.28))
             }
 
@@ -264,7 +291,7 @@ struct HomeView: View {
                 .shadow(color: Color.black.opacity(0.07), radius: 12, y: 6)
 
             Text(viewModel.avatarInitials)
-                .font(.system(size: 17, weight: .semibold, design: .rounded))
+                .lumiScaledFont(size: 17, relativeTo: .body, weight: .semibold, design: .rounded, maximumSize: 22)
                 .foregroundStyle(Color(red: 0.16, green: 0.17, blue: 0.29))
         }
     }
@@ -273,12 +300,12 @@ struct HomeView: View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
             VStack(alignment: .leading, spacing: 8) {
                 Text("\(viewModel.greeting(for: context.date)),")
-                    .font(.system(size: 31, weight: .medium, design: .serif))
+                    .font(.system(.largeTitle, design: .serif, weight: .medium))
                     .foregroundStyle(Color(red: 0.16, green: 0.17, blue: 0.29))
 
                 HStack(spacing: 8) {
                     Text(viewModel.greetingName)
-                        .font(.system(size: 31, weight: .medium, design: .serif))
+                        .font(.system(.largeTitle, design: .serif, weight: .medium))
                         .foregroundStyle(Color(red: 0.16, green: 0.17, blue: 0.29))
                         .lineLimit(1)
                         .minimumScaleFactor(0.72)
@@ -289,7 +316,7 @@ struct HomeView: View {
                 }
 
                 Text(viewModel.heroHeadline)
-                    .font(.system(size: 18, weight: .regular, design: .rounded))
+                    .font(.system(.body, design: .rounded))
                     .foregroundStyle(Color(red: 0.46, green: 0.49, blue: 0.58))
             }
         }
@@ -303,13 +330,13 @@ struct HomeView: View {
 
                 VStack(alignment: .leading, spacing: 12) {
                     Text(viewModel.necklaceName)
-                        .font(.system(size: 23, weight: .medium, design: .serif))
+                        .font(.system(.title2, design: .serif, weight: .medium))
                         .foregroundStyle(Color(red: 0.16, green: 0.17, blue: 0.29))
                         .lineLimit(2)
                         .minimumScaleFactor(0.8)
 
                     Text(heroStatusText)
-                        .font(.system(size: 15, weight: .medium, design: .rounded))
+                        .font(.system(.subheadline, design: .rounded, weight: .medium))
                         .foregroundStyle(Color(red: 0.83, green: 0.28, blue: 0.39))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 7)
@@ -317,7 +344,7 @@ struct HomeView: View {
                         .clipShape(Capsule())
 
                     Text("“\(heroQuote)”")
-                        .font(.system(size: 21, weight: .regular, design: .serif))
+                        .font(.system(.title3, design: .serif))
                         .foregroundStyle(Color(red: 0.17, green: 0.18, blue: 0.31))
                         .lineSpacing(3)
                         .fixedSize(horizontal: false, vertical: true)
@@ -336,7 +363,7 @@ struct HomeView: View {
                                     .frame(width: 18)
 
                                 Text(item.text)
-                                    .font(.system(size: 14, weight: .regular, design: .rounded))
+                                    .font(.system(.subheadline, design: .rounded))
                                     .foregroundStyle(Color(red: 0.42, green: 0.43, blue: 0.50))
                             }
                         }
@@ -403,7 +430,7 @@ struct HomeView: View {
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(Color.white.opacity(0.9))
                 Text("L")
-                    .font(.system(size: 28, weight: .semibold, design: .serif))
+                    .lumiScaledFont(size: 28, relativeTo: .title, weight: .semibold, design: .serif, maximumSize: 36)
                     .foregroundStyle(Color.white)
             }
 
@@ -436,11 +463,11 @@ struct HomeView: View {
 
                     VStack(spacing: 6) {
                         Text("No Lumis waiting")
-                            .font(.system(size: 19, weight: .medium, design: .serif))
+                            .font(.system(.title3, design: .serif, weight: .medium))
                             .foregroundStyle(Color(red: 0.16, green: 0.17, blue: 0.29))
 
                         Text("Add a Lumi when you’re ready to leave her another moment.")
-                            .font(.system(size: 15, weight: .regular, design: .rounded))
+                            .font(.system(.subheadline, design: .rounded))
                             .foregroundStyle(Color(red: 0.46, green: 0.49, blue: 0.58))
                             .multilineTextAlignment(.center)
                             .lineSpacing(2)
@@ -451,7 +478,7 @@ struct HomeView: View {
                             viewModel.openLumiComposer()
                         } label: {
                             Label("Add a Lumi", systemImage: "sparkles")
-                                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                .font(.system(.headline, design: .rounded, weight: .semibold))
                                 .foregroundStyle(Color.white)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 12)
@@ -475,13 +502,13 @@ struct HomeView: View {
                                 .frame(width: 38, height: 38)
 
                             Text("\(index + 1)")
-                                .font(.system(size: 15, weight: .medium, design: .rounded))
+                                .font(.system(.subheadline, design: .rounded, weight: .medium))
                                 .foregroundStyle(numberTint(for: index))
                         }
 
                         VStack(alignment: .leading, spacing: 7) {
                             Text(message.text)
-                                .font(.system(size: 17, weight: .regular, design: .rounded))
+                                .font(.system(.body, design: .rounded))
                                 .foregroundStyle(Color(red: 0.18, green: 0.19, blue: 0.31))
                                 .fixedSize(horizontal: false, vertical: true)
                             LumiAttachmentBadge(attachment: message.attachment)
@@ -530,11 +557,11 @@ struct HomeView: View {
 
                     VStack(alignment: .leading, spacing: 5) {
                         Text("Nothing revealed yet")
-                            .font(.system(size: 16, weight: .medium, design: .rounded))
+                            .font(.system(.body, design: .rounded, weight: .medium))
                             .foregroundStyle(Color(red: 0.18, green: 0.19, blue: 0.31))
 
                         Text("Her revealed Lumis will appear here after she taps the necklace.")
-                            .font(.system(size: 14, weight: .regular, design: .rounded))
+                            .font(.system(.subheadline, design: .rounded))
                             .foregroundStyle(Color(red: 0.46, green: 0.49, blue: 0.58))
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -603,7 +630,7 @@ struct HomeView: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(item.text)
-                    .font(.system(size: 16, weight: .regular, design: .rounded))
+                    .font(.system(.body, design: .rounded))
                     .foregroundStyle(Color(red: 0.18, green: 0.19, blue: 0.31))
                     .lineLimit(3)
                     .fixedSize(horizontal: false, vertical: true)
@@ -612,7 +639,7 @@ struct HomeView: View {
 
                 if let reaction = item.feedback?.reaction {
                     Text("\(reaction.emoji)  \(reaction.accessibilityLabel)")
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .font(.system(.footnote, design: .rounded, weight: .semibold))
                         .foregroundStyle(Color(red: 0.72, green: 0.25, blue: 0.39))
                         .padding(.horizontal, 9)
                         .padding(.vertical, 5)
@@ -622,14 +649,14 @@ struct HomeView: View {
                 if let response = item.feedback?.responseText,
                    !response.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Text("“\(response)”")
-                        .font(.system(size: 14, weight: .regular, design: .serif))
+                        .font(.system(.subheadline, design: .serif))
                         .foregroundStyle(Color(red: 0.34, green: 0.35, blue: 0.46))
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
                 Text(viewModel.revealedSubtitle(for: item.revealedAt))
-                    .font(.system(size: 14, weight: .regular, design: .rounded))
+                    .font(.system(.subheadline, design: .rounded))
                     .foregroundStyle(Color(red: 0.46, green: 0.49, blue: 0.58))
             }
 
@@ -672,7 +699,7 @@ struct HomeView: View {
                     .foregroundStyle(Color(red: 0.92, green: 0.58, blue: 0.42))
 
                 Text(title)
-                    .font(.system(size: 18, weight: .medium, design: .serif))
+                    .font(.system(.headline, design: .serif, weight: .medium))
                     .foregroundStyle(Color(red: 0.16, green: 0.17, blue: 0.29))
             }
 
@@ -681,7 +708,7 @@ struct HomeView: View {
             if let actionTitle, let action {
                 Button(action: action) {
                     Label(actionTitle, systemImage: "pencil")
-                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                        .font(.system(.subheadline, design: .rounded, weight: .medium))
                         .foregroundStyle(Color(red: 0.90, green: 0.33, blue: 0.47))
                 }
                 .buttonStyle(.plain)
@@ -699,6 +726,52 @@ struct HomeView: View {
         default:
             return Color(red: 0.94, green: 0.67, blue: 0.29)
         }
+    }
+}
+
+private struct HomeQueueStatusCard: View {
+    let title: String
+    let detail: String
+    let systemImage: String
+    var showsProgress = false
+    var retryAction: (() -> Void)?
+
+    var body: some View {
+        VStack(spacing: 16) {
+            if showsProgress {
+                ProgressView()
+                    .tint(LumiTheme.Colors.rose)
+            } else {
+                Image(systemName: systemImage)
+                    .font(.system(size: 28, weight: .semibold))
+                    .foregroundStyle(LumiTheme.Colors.rose)
+                    .accessibilityHidden(true)
+            }
+
+            VStack(spacing: 6) {
+                Text(title)
+                    .font(LumiTheme.Typography.headline(20))
+                    .foregroundStyle(LumiTheme.Colors.ink)
+                Text(detail)
+                    .font(LumiTheme.Typography.body(15))
+                    .foregroundStyle(LumiTheme.Colors.ink.opacity(0.68))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let retryAction {
+                Button("Try Again", action: retryAction)
+                    .buttonStyle(SecondaryButtonStyle())
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(24)
+        .background(Color.white.opacity(0.88))
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(LumiTheme.Colors.cardStroke, lineWidth: 1)
+        )
     }
 }
 

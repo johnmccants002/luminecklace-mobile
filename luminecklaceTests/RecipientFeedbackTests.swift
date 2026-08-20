@@ -126,7 +126,7 @@ final class RecipientFeedbackTests: XCTestCase {
             if case .waiting = appState.recipientRevealState { return true }
             return false
         }
-        appState.completeRecipientHold(for: first)
+        appState.beginAutomaticRecipientReveal(for: first)
         try await waitUntil { self.isConfirmed(appState.recipientRevealState, sessionID: "session-1") }
 
         appState.selectRecipientReaction(.heart)
@@ -176,7 +176,7 @@ final class RecipientFeedbackTests: XCTestCase {
             if case .waiting = appState.recipientRevealState { return true }
             return false
         }
-        appState.completeRecipientHold(for: lumi)
+        appState.beginAutomaticRecipientReveal(for: lumi)
         try await waitUntil { self.isConfirmed(appState.recipientRevealState, sessionID: "session-lock") }
 
         appState.updateRecipientResponseDraft("Words remain")
@@ -190,6 +190,46 @@ final class RecipientFeedbackTests: XCTestCase {
         )
         XCTAssertEqual(appState.recipientFeedbackState.draftResponse, "Words remain")
         XCTAssertFalse(appState.recipientFeedbackState.isResponseComposerPresented)
+    }
+
+    func testNewTokenCancelsPendingAutomaticReveal() async throws {
+        let first = makeLumi(sessionID: "session-old")
+        let second = makeLumi(sessionID: "session-new")
+        let service = FullAppMockTapService(
+            resolveResults: [.success(.ready(first)), .success(.ready(second))]
+        )
+        let appState = AppState(
+            tapResolutionService: service,
+            recipientRevealTransitionDelay: .milliseconds(40)
+        )
+
+        appState.handleIncomingHandoff(
+            url: try XCTUnwrap(URL(string: "https://www.luminecklace.com/t/old"))
+        )
+        try await waitUntil {
+            if case let .waiting(lumi) = appState.recipientRevealState {
+                return lumi.revealSessionId == "session-old"
+            }
+            return false
+        }
+        appState.beginAutomaticRecipientReveal(for: first)
+
+        appState.handleIncomingHandoff(
+            url: try XCTUnwrap(URL(string: "https://www.luminecklace.com/t/new"))
+        )
+        try await waitUntil {
+            if case let .waiting(lumi) = appState.recipientRevealState {
+                return lumi.revealSessionId == "session-new"
+            }
+            return false
+        }
+        try await Task.sleep(for: .milliseconds(70))
+
+        XCTAssertTrue(service.confirmRequests.isEmpty)
+        guard case let .waiting(current) = appState.recipientRevealState else {
+            return XCTFail("The new Lumi should remain ready to reveal.")
+        }
+        XCTAssertEqual(current.revealSessionId, "session-new")
     }
 
     private func revealed(id: String, feedback: Any?) -> [String: Any] {
@@ -294,6 +334,7 @@ private final class FullAppMockTapService: RecipientTapServicing, @unchecked Sen
     nonisolated(unsafe) private var reactionResults: [Result<LumiFeedback, Error>]
     nonisolated(unsafe) private var responseResults: [Result<LumiFeedback, Error>]
     nonisolated(unsafe) private var _reactionRequests: [(sessionID: String, reaction: LumiReaction)] = []
+    nonisolated(unsafe) private var _confirmRequests: [String] = []
 
     init(
         resolveResults: [Result<ResolveTapResponse, Error>],
@@ -309,6 +350,10 @@ private final class FullAppMockTapService: RecipientTapServicing, @unchecked Sen
         lock.withLock { _reactionRequests }
     }
 
+    var confirmRequests: [String] {
+        lock.withLock { _confirmRequests }
+    }
+
     func resolveTap(token: String) async throws -> ResolveTapResponse {
         try lock.withLock {
             guard !resolveResults.isEmpty else {
@@ -319,7 +364,8 @@ private final class FullAppMockTapService: RecipientTapServicing, @unchecked Sen
     }
 
     func confirmReveal(revealSessionId: String) async throws -> ConfirmRevealResponse {
-        ConfirmRevealResponse(status: "revealed", revealedAt: Date(timeIntervalSince1970: 1))
+        lock.withLock { _confirmRequests.append(revealSessionId) }
+        return ConfirmRevealResponse(status: "revealed", revealedAt: Date(timeIntervalSince1970: 1))
     }
 
     func setReaction(revealSessionId: String, reaction: LumiReaction) async throws -> LumiFeedback {

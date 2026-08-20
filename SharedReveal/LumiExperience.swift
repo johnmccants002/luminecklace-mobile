@@ -45,15 +45,21 @@ nonisolated struct LumiExperienceContent: Hashable, Sendable {
     }
 }
 
+enum LumiExperienceRenderLayer {
+    case complete
+    case backgroundOnly
+    case messageOnly
+}
+
 struct LumiExperienceRenderer: View {
     let content: LumiExperienceContent
     let isActive: Bool
-    let showsMessage: Bool
+    let layer: LumiExperienceRenderLayer
 
     init(content: LumiExperienceContent, isActive: Bool) {
         self.content = content
         self.isActive = isActive
-        showsMessage = true
+        layer = .complete
     }
 
     init(
@@ -63,31 +69,85 @@ struct LumiExperienceRenderer: View {
     ) {
         self.content = content
         self.isActive = isActive
-        self.showsMessage = showsMessage
+        layer = showsMessage ? .complete : .backgroundOnly
+    }
+
+    init(
+        content: LumiExperienceContent,
+        isActive: Bool,
+        layer: LumiExperienceRenderLayer
+    ) {
+        self.content = content
+        self.isActive = isActive
+        self.layer = layer
     }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var phase = 0
     @State private var revealedWordCount = 0
     @State private var atmosphereMoves = false
 
     var body: some View {
-        ZStack {
-            background
-            atmosphere
-            if showsMessage {
+        Group {
+            switch layer {
+            case .complete:
+                ZStack {
+                    background
+                    atmosphere
+                    fullPresentationMessage
+                }
+                .clipped()
+            case .backgroundOnly:
+                ZStack {
+                    background
+                    atmosphere
+                }
+                .clipped()
+                .accessibilityHidden(true)
+            case .messageOnly:
                 message
-                    .padding(.horizontal, 34)
+                    .padding(.horizontal, 6)
                     .frame(maxWidth: 620)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .clipped()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(content.accessibilityText)
         .task(id: isActive) {
             resetPlayback()
             guard isActive else { return }
             await play()
+        }
+    }
+
+    private var fullPresentationMessage: some View {
+        GeometryReader { proxy in
+            let needsScrolling = LumiLongContentLayoutPolicy.requiresScrolling(
+                preset: content.presetKey,
+                primaryCharacterCount: content.primaryText.count,
+                primaryWordCount: words.count,
+                secondaryCharacterCount: content.secondaryText?.count ?? 0,
+                availableWidth: proxy.size.width,
+                isAccessibilitySize: dynamicTypeSize.isAccessibilitySize
+            )
+
+            Group {
+                if needsScrolling {
+                    ScrollView {
+                        message
+                            .padding(.vertical, 130)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .scrollIndicators(.visible)
+                } else {
+                    message
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+            .padding(.horizontal, 34)
+            .frame(maxWidth: 620)
+            .frame(maxWidth: .infinity)
         }
     }
 
@@ -145,34 +205,45 @@ struct LumiExperienceRenderer: View {
     @ViewBuilder private var message: some View {
         switch content.presetKey {
         case .classicWordRise, .goldenHour:
-            wordReveal.font(.system(size: 40, weight: .medium, design: .serif))
+            wordReveal.lumiScaledFont(
+                size: 40,
+                relativeTo: .largeTitle,
+                weight: .medium,
+                design: .serif,
+                maximumSize: 56
+            )
                 .multilineTextAlignment(.center).lineSpacing(8)
         case .midnight:
-            animatedText(font: .system(size: 38, design: .serif), offset: 32)
+            animatedText(size: 38, textStyle: .largeTitle, design: .serif, offset: 32)
         case .proudOfYou:
-            VStack(spacing: 0) {
-                ForEach(Array(words.enumerated()), id: \.offset) { index, word in
-                    Text(word).font(.system(size: 49, weight: .bold, design: .rounded))
-                        .opacity(index < revealedWordCount ? 1 : 0)
-                        .offset(x: index < revealedWordCount ? 0 : (index.isMultiple(of: 2) ? -24 : 24))
-                }
-            }.foregroundStyle(foreground)
+            wordReveal
+                .lumiScaledFont(
+                    size: 49,
+                    relativeTo: .largeTitle,
+                    weight: .bold,
+                    design: .rounded,
+                    maximumSize: 62
+                )
+                .multilineTextAlignment(.center)
+                .lineSpacing(3)
         case .playful:
-            animatedText(font: .system(size: 38, weight: .heavy, design: .rounded), scale: 0.66)
+            animatedText(size: 38, textStyle: .largeTitle, weight: .heavy, design: .rounded, scale: 0.66)
         case .calm:
-            animatedText(font: .system(size: 36, weight: .light, design: .rounded), blur: 13)
+            animatedText(size: 36, textStyle: .largeTitle, weight: .light, design: .rounded, blur: 13)
         case .memory:
             VStack(spacing: 22) {
                 Rectangle().fill(foreground.opacity(0.65)).frame(width: phase > 0 ? 54 : 0, height: 1)
-                animatedText(font: .system(size: 37, weight: .medium, design: .serif), offset: 22, blur: 8)
+                animatedText(size: 37, textStyle: .largeTitle, weight: .medium, design: .serif, offset: 22, blur: 8)
             }
         case .timedSurprise:
             VStack(spacing: 30) {
-                Text(content.primaryText).font(.system(size: 25, weight: .medium, design: .rounded))
+                Text(content.primaryText)
+                    .lumiScaledFont(size: 25, relativeTo: .title2, weight: .medium, design: .rounded, maximumSize: 38)
                     .foregroundStyle(foreground.opacity(phase >= 2 ? 0.52 : 0.82))
                     .opacity(phase >= 1 ? 1 : 0)
                 if let secondaryText = content.secondaryText {
-                    Text(secondaryText).font(.system(size: 39, weight: .semibold, design: .rounded))
+                    Text(secondaryText)
+                        .lumiScaledFont(size: 39, relativeTo: .largeTitle, weight: .semibold, design: .rounded, maximumSize: 56)
                         .foregroundStyle(foreground).multilineTextAlignment(.center)
                         .opacity(phase >= 2 ? 1 : 0).blur(radius: phase >= 2 ? 0 : 10)
                 }
@@ -180,8 +251,24 @@ struct LumiExperienceRenderer: View {
         }
     }
 
-    private func animatedText(font: Font, offset: CGFloat = 0, scale: CGFloat = 1, blur: CGFloat = 9) -> some View {
-        Text(content.primaryText).font(font).foregroundStyle(foreground)
+    private func animatedText(
+        size: CGFloat,
+        textStyle: Font.TextStyle,
+        weight: Font.Weight = .regular,
+        design: Font.Design,
+        offset: CGFloat = 0,
+        scale: CGFloat = 1,
+        blur: CGFloat = 9
+    ) -> some View {
+        Text(content.primaryText)
+            .lumiScaledFont(
+                size: size,
+                relativeTo: textStyle,
+                weight: weight,
+                design: design,
+                maximumSize: 56
+            )
+            .foregroundStyle(foreground)
             .multilineTextAlignment(.center).lineSpacing(10)
             .opacity(phase > 0 ? 1 : 0).blur(radius: phase > 0 ? 0 : blur)
             .offset(y: phase > 0 ? 0 : offset).scaleEffect(phase > 0 ? 1 : scale)
@@ -190,7 +277,9 @@ struct LumiExperienceRenderer: View {
     private var wordReveal: Text {
         words.enumerated().reduce(Text("")) { result, entry in
             let prefix = entry.offset == 0 ? "" : " "
-            return result + Text(prefix + entry.element).foregroundColor(foreground.opacity(entry.offset < revealedWordCount ? 1 : 0))
+            let word = Text(prefix + entry.element)
+                .foregroundColor(foreground.opacity(entry.offset < revealedWordCount ? 1 : 0))
+            return Text("\(result)\(word)")
         }
     }
 

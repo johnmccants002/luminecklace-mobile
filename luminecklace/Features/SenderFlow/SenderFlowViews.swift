@@ -1,5 +1,32 @@
 import SwiftUI
 
+struct SessionRestoringView: View {
+    var body: some View {
+        ZStack {
+            LumiTheme.Colors.pageBackground.ignoresSafeArea()
+
+            VStack(spacing: 16) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 34, weight: .semibold))
+                    .foregroundStyle(LumiTheme.Colors.rose)
+                    .accessibilityHidden(true)
+                ProgressView()
+                    .tint(LumiTheme.Colors.rose)
+                Text("Opening Lumi…")
+                    .font(LumiTheme.Typography.headline(22))
+                    .foregroundStyle(LumiTheme.Colors.ink)
+                Text("Checking your saved session securely.")
+                    .font(LumiTheme.Typography.body(15))
+                    .foregroundStyle(LumiTheme.Colors.ink.opacity(0.72))
+                    .multilineTextAlignment(.center)
+            }
+            .padding(24)
+            .glassCard()
+            .padding(20)
+        }
+    }
+}
+
 struct PostAuthBootstrapView: View {
     @EnvironmentObject private var appState: AppState
 
@@ -67,13 +94,14 @@ struct SenderLoadErrorView: View {
             VStack(spacing: 18) {
                 EmptyStateView(
                     title: "We couldn't load your Lumi",
-                    subtitle: "Check your connection and try again.",
+                    subtitle: appState.lastBootstrapError
+                        ?? "Check your connection and try again.",
                     systemImage: "wifi.exclamationmark"
                 )
 
                 VStack(spacing: 12) {
                     PrimaryButton(title: "Try Again") {
-                        Task { await appState.bootstrapSenderFlowAfterAuth() }
+                        Task { await appState.retrySenderLoad() }
                     }
 
                     Button("Sign Out") {
@@ -787,53 +815,14 @@ private struct QueueSectionEditorView: View {
             VStack(alignment: .leading, spacing: 16) {
                 header
 
-                if let error = appState.queueActionError {
+                if appState.queueSnapshot != nil,
+                   let error = appState.queueActionError {
                     QueueErrorBanner(message: error) {
                         appState.clearQueueActionError()
                     }
                 }
 
-                if messages.isEmpty {
-                    EmptyStateView(
-                        title: emptyTitle,
-                        subtitle: emptyDetail,
-                        systemImage: section == .upNext ? "sparkles" : "tray"
-                    )
-                    Spacer(minLength: 0)
-                } else {
-                    Text("Drag to reorder. Use the menu for queue actions.")
-                        .font(LumiTheme.Typography.body(14))
-                        .foregroundStyle(LumiTheme.Colors.ink.opacity(0.66))
-
-                    List {
-                        ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
-                            QueueActionRow(
-                                index: index,
-                                message: message,
-                                section: section,
-                                isDisabled: appState.isQueueMutating,
-                                onMakeNext: { appState.makeUpNext(message.id) },
-                                onMoveToReserve: { appState.moveToReserve(message.id) },
-                                onMoveToUpNext: { appState.moveToUpNext(message.id) },
-                                onImmediateNext: { appState.addAsImmediateNext(message.id) },
-                                onEdit: { appState.openLumiComposer(editing: message, in: section) },
-                                onRemove: { pendingRemoval = message }
-                            )
-                            .listRowBackground(Color.clear)
-                            .listRowSeparator(.hidden)
-                        }
-                        .onMove { source, destination in
-                            appState.reorderMessages(
-                                in: section,
-                                from: source,
-                                to: destination
-                            )
-                        }
-                    }
-                    .listStyle(.plain)
-                    .scrollContentBackground(.hidden)
-                    .environment(\.editMode, $editMode)
-                }
+                queueContent
             }
             .padding(20)
 
@@ -865,6 +854,83 @@ private struct QueueSectionEditorView: View {
             }
         } message: { _ in
             Text("This removes the Lumi from the necklace sequence.")
+        }
+    }
+
+    @ViewBuilder
+    private var queueContent: some View {
+        if appState.queueSnapshot == nil {
+            switch appState.queueSyncState {
+            case .idle, .loading:
+                VStack(spacing: 14) {
+                    ProgressView()
+                        .tint(LumiTheme.Colors.rose)
+                    Text("Loading queue…")
+                        .font(LumiTheme.Typography.body(16).weight(.semibold))
+                        .foregroundStyle(LumiTheme.Colors.ink)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case let .failed(message):
+                EmptyStateView(
+                    title: "Queue unavailable",
+                    subtitle: message,
+                    systemImage: "wifi.exclamationmark"
+                )
+                PrimaryButton(title: "Try Again") {
+                    Task { await appState.refreshQueueSnapshot() }
+                }
+                Spacer(minLength: 0)
+            case .loaded, .mutating:
+                EmptyStateView(
+                    title: "Queue unavailable",
+                    subtitle: "Queue details are unavailable right now.",
+                    systemImage: "wifi.exclamationmark"
+                )
+                PrimaryButton(title: "Try Again") {
+                    Task { await appState.refreshQueueSnapshot() }
+                }
+                Spacer(minLength: 0)
+            }
+        } else if messages.isEmpty {
+            EmptyStateView(
+                title: emptyTitle,
+                subtitle: emptyDetail,
+                systemImage: section == .upNext ? "sparkles" : "tray"
+            )
+            Spacer(minLength: 0)
+        } else {
+            Text("Drag to reorder. Use the menu for queue actions.")
+                .font(LumiTheme.Typography.body(14))
+                .foregroundStyle(LumiTheme.Colors.ink.opacity(0.66))
+
+            List {
+                ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
+                    QueueActionRow(
+                        index: index,
+                        message: message,
+                        section: section,
+                        isDisabled: appState.isQueueMutating,
+                        onMakeNext: { appState.makeUpNext(message.id) },
+                        onMoveToReserve: { appState.moveToReserve(message.id) },
+                        onMoveToUpNext: { appState.moveToUpNext(message.id) },
+                        onImmediateNext: { appState.addAsImmediateNext(message.id) },
+                        onEdit: { appState.openLumiComposer(editing: message, in: section) },
+                        onRemove: { pendingRemoval = message }
+                    )
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                }
+                .onMove { source, destination in
+                    appState.reorderMessages(
+                        in: section,
+                        from: source,
+                        to: destination
+                    )
+                }
+            }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .environment(\.editMode, $editMode)
         }
     }
 
@@ -1042,97 +1108,15 @@ struct RecipientRevealView: View {
         )
         .onChange(of: appState.recipientRevealState) { _, state in
             if case let .waiting(lumi) = state {
-                appState.completeRecipientHold(for: lumi)
+                appState.beginAutomaticRecipientReveal(for: lumi)
             }
         }
         .onAppear {
             if case let .waiting(lumi) = appState.recipientRevealState {
-                appState.completeRecipientHold(for: lumi)
+                appState.beginAutomaticRecipientReveal(for: lumi)
             }
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .navigationBar)
-    }
-}
-
-private struct HoldToRevealButton: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @GestureState private var isPressing = false
-    @State private var progress: CGFloat = 0
-    @State private var didComplete = false
-
-    let onComplete: () -> Void
-
-    var body: some View {
-        Button {
-            complete()
-        } label: {
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(Color.white.opacity(0.95))
-                Capsule()
-                    .fill(
-                        LinearGradient(
-                            colors: [LumiTheme.Colors.rose.opacity(0.95), LumiTheme.Colors.gold.opacity(0.88)],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-                    .frame(maxWidth: .infinity)
-                    .scaleEffect(x: didComplete ? 1 : progress, y: 1, anchor: .leading)
-                Text("Hold to reveal")
-                    .font(LumiTheme.Typography.body(18).weight(.semibold))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 17)
-            }
-        }
-        .buttonStyle(.plain)
-        .clipShape(Capsule())
-        .overlay(Capsule().stroke(LumiTheme.Colors.cardStroke, lineWidth: 1))
-        .shadow(color: LumiTheme.Colors.rose.opacity(0.14), radius: 12, y: 8)
-        .accessibilityLabel("Reveal Lumi")
-        .accessibilityHint("Double tap to reveal, or press and hold for one second.")
-        .accessibilityAction(named: Text("Reveal")) {
-            complete()
-        }
-        .simultaneousGesture(
-            LongPressGesture(minimumDuration: 1.0)
-                .updating($isPressing) { value, state, _ in
-                    state = value
-                }
-                .onChanged { _ in
-                    guard !didComplete else { return }
-                    withAnimation(.linear(duration: reduceMotion ? 0.01 : 1.0)) {
-                        progress = 1
-                    }
-                }
-                .onEnded { finished in
-                    if finished {
-                        complete()
-                    } else {
-                        reset()
-                    }
-                }
-        )
-        .onChange(of: isPressing) { _, newValue in
-            if !newValue, !didComplete, progress < 1 {
-                reset()
-            }
-        }
-        .padding(.top, 10)
-    }
-
-    private func complete() {
-        guard !didComplete else { return }
-        didComplete = true
-        progress = 1
-        onComplete()
-    }
-
-    private func reset() {
-        withAnimation(.easeOut(duration: 0.18)) {
-            progress = 0
-        }
     }
 }

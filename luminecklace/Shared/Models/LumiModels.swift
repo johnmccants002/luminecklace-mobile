@@ -595,6 +595,7 @@ struct UserSettings {
 }
 
 enum RootRoute: Equatable {
+    case sessionRestoring
     case auth
     case postAuthBootstrap
     case noNecklace

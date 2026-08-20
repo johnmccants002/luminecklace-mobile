@@ -19,15 +19,27 @@ struct CollectionView: View {
                         .font(LumiTheme.Typography.display(34))
                         .foregroundStyle(LumiTheme.Colors.ink)
 
-                    LazyVGrid(columns: columns, spacing: 12) {
-                        ForEach(viewModel.necklaces) { necklace in
-                            NavigationLink {
-                                NecklaceDetailView(viewModel: viewModel, necklace: necklace, namespace: cardNamespace)
-                            } label: {
-                                NecklaceCardView(necklace: necklace)
-                                    .matchedGeometryEffect(id: necklace.id, in: cardNamespace)
+                    if viewModel.necklaces.isEmpty {
+                        EmptyStateView(
+                            title: "No Lumi linked",
+                            subtitle: "There isn't a necklace connected to this account yet.",
+                            systemImage: "heart.slash"
+                        )
+
+                        PrimaryButton(title: "Try Again") {
+                            Task { await viewModel.retryLoad() }
+                        }
+                    } else {
+                        LazyVGrid(columns: columns, spacing: 12) {
+                            ForEach(viewModel.necklaces) { necklace in
+                                NavigationLink {
+                                    NecklaceDetailView(viewModel: viewModel, necklace: necklace, namespace: cardNamespace)
+                                } label: {
+                                    NecklaceCardView(necklace: necklace)
+                                        .matchedGeometryEffect(id: necklace.id, in: cardNamespace)
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                         }
                     }
                 }

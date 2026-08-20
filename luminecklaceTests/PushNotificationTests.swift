@@ -432,6 +432,97 @@ final class PushNotificationTests: XCTestCase {
         XCTAssertEqual(state.route, .recipientReveal)
     }
 
+    func testSessionRestoreDoesNotReplaceRecipientRoute() async throws {
+        let auth = MockAuthService()
+        let navigation = MockNavigationService(necklaces: [necklace("owned", equipped: true)])
+        let state = AppState(
+            tapResolutionService: RoutingTapService(),
+            authService: auth,
+            pushNotificationManager: makeManager(),
+            notificationNavigationService: navigation
+        )
+        state.handleIncomingHandoff(
+            url: try XCTUnwrap(URL(string: "https://www.luminecklace.com/t/cold-start"))
+        )
+
+        await state.restoreSessionIfNeeded()
+
+        XCTAssertEqual(state.route, .recipientReveal)
+        XCTAssertEqual(state.equippedNecklace?.id, "owned")
+        XCTAssertEqual(navigation.callCount, 1)
+    }
+
+    func testInitialRouteDoesNotExposeAuthenticationBeforeRestore() async {
+        let state = AppState(pushNotificationManager: makeManager())
+
+        XCTAssertEqual(state.route, .sessionRestoring)
+        await settle()
+    }
+
+    func testUnavailableLocalSessionIsRecoverableWithoutShowingAuthentication() async {
+        let auth = MockAuthService()
+        auth.localSessionStateOverride = .unavailable("Saved session is temporarily unavailable.")
+        let navigation = MockNavigationService(necklaces: [necklace("owned", equipped: true)])
+        let state = AppState(
+            authService: auth,
+            pushNotificationManager: makeManager(),
+            notificationNavigationService: navigation
+        )
+
+        await state.restoreSessionIfNeeded()
+        XCTAssertEqual(state.route, .senderLoadError)
+        XCTAssertNil(state.user)
+        XCTAssertEqual(navigation.callCount, 0)
+
+        auth.localSessionStateOverride = .available
+        await state.retrySenderLoad()
+        XCTAssertEqual(state.route, .senderHome)
+        XCTAssertEqual(state.user?.id, "user-a")
+        XCTAssertEqual(navigation.callCount, 1)
+    }
+
+    func testSessionRestoreFailureCanRetryWithoutAuthentication() async {
+        let auth = MockAuthService()
+        auth.meResults = [
+            .failure(TestError.unavailable),
+            .success(testUser(id: "user-a"))
+        ]
+        let navigation = MockNavigationService(necklaces: [necklace("owned", equipped: true)])
+        let state = AppState(
+            authService: auth,
+            pushNotificationManager: makeManager(),
+            notificationNavigationService: navigation
+        )
+
+        await state.restoreSessionIfNeeded()
+        XCTAssertEqual(state.route, .senderLoadError)
+        XCTAssertTrue(auth.hasAccessToken)
+        XCTAssertNil(state.user)
+
+        await state.retrySenderLoad()
+        XCTAssertEqual(state.route, .senderHome)
+        XCTAssertEqual(state.user?.id, "user-a")
+        XCTAssertEqual(state.equippedNecklace?.id, "owned")
+    }
+
+    func testEmptyForegroundRefreshRoutesToNoNecklace() async {
+        let navigation = MockNavigationService(necklaces: [])
+        let state = AppState(
+            authService: MockAuthService(),
+            pushNotificationManager: makeManager(),
+            notificationNavigationService: navigation
+        )
+        state.user = testUser(id: "user-a")
+        state.ownedNecklaces = [necklace("removed", equipped: true)]
+        state.route = .senderHome
+
+        await state.refreshSenderDataIfNeeded()
+
+        XCTAssertEqual(state.route, .noNecklace)
+        XCTAssertTrue(state.ownedNecklaces.isEmpty)
+        XCTAssertNil(state.queueSnapshot)
+    }
+
     func testPreferenceFailureRollsBackOptimisticChange() async {
         let service = MockPushService()
         service.preferences = .enabledByDefault
@@ -600,7 +691,7 @@ final class PushNotificationTests: XCTestCase {
     }
 
     private func testUser(id: String) -> User {
-        User(
+        return User(
             id: id,
             email: "sender@example.com",
             displayName: "Sender",
@@ -763,11 +854,17 @@ private struct MockEnvironmentProvider: APNSEnvironmentProviding {
 @MainActor
 private final class MockAuthService: AuthenticationServicing {
     var hasAccessToken = true
+    var localSessionStateOverride: LocalSessionState?
     var signOutError: Error?
+    var meResults: [Result<User, Error>] = []
     private let events: EventLog?
 
     init(events: EventLog? = nil) {
         self.events = events
+    }
+
+    var localSessionState: LocalSessionState {
+        localSessionStateOverride ?? (hasAccessToken ? .available : .missing)
     }
 
     func signIn(email: String, password: String) async throws -> AuthResult {
@@ -784,7 +881,10 @@ private final class MockAuthService: AuthenticationServicing {
     func resetPassword(email: String) async throws {}
 
     func me() async throws -> User {
-        User(
+        if !meResults.isEmpty {
+            return try meResults.removeFirst().get()
+        }
+        return User(
             id: "user-a",
             email: "sender@example.com",
             displayName: nil,
@@ -801,6 +901,22 @@ private final class MockAuthService: AuthenticationServicing {
     func clearLocalSession() {
         events?.values.append("auth.clear")
         hasAccessToken = false
+    }
+}
+
+private struct RoutingTapService: RecipientTapServicing {
+    func resolveTap(token: String) async throws -> ResolveTapResponse { .empty }
+
+    func confirmReveal(revealSessionId: String) async throws -> ConfirmRevealResponse {
+        ConfirmRevealResponse(status: "revealed", revealedAt: Date())
+    }
+
+    func setReaction(revealSessionId: String, reaction: LumiReaction) async throws -> LumiFeedback {
+        LumiFeedback(reaction: reaction)
+    }
+
+    func submitResponse(revealSessionId: String, text: String) async throws -> LumiFeedback {
+        LumiFeedback(responseText: text)
     }
 }
 

@@ -37,6 +37,13 @@ final class HomeViewModel: ObservableObject {
         HomeFeaturedLumi(snapshot: appState.queueSnapshot)
     }
 
+    var queuePresentation: HomeQueuePresentation {
+        HomeQueuePresentation(
+            syncState: appState.queueSyncState,
+            snapshot: appState.queueSnapshot
+        )
+    }
+
     var featuredMessage: Message? {
         featuredLumi.message
     }
@@ -112,6 +119,10 @@ final class HomeViewModel: ObservableObject {
         appState.openLumiComposer()
     }
 
+    func retryQueueLoad() async {
+        await appState.refreshQueueSnapshot()
+    }
+
     func revealedSubtitle(for date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
         let time = date.formatted(date: .omitted, time: .shortened)
 
@@ -133,6 +144,35 @@ final class HomeViewModel: ObservableObject {
                 .minute()
         )
         return "Revealed \(dateAndTime)"
+    }
+}
+
+enum HomeQueuePresentation: Equatable {
+    case loading
+    case unavailable(String)
+    case loaded(HomeFeaturedLumi)
+
+    init(syncState: QueueSyncState, snapshot: QueueSnapshot?) {
+        switch syncState {
+        case .idle, .loading:
+            if let snapshot {
+                self = .loaded(HomeFeaturedLumi(snapshot: snapshot))
+            } else {
+                self = .loading
+            }
+        case let .failed(message):
+            if let snapshot {
+                self = .loaded(HomeFeaturedLumi(snapshot: snapshot))
+            } else {
+                self = .unavailable(message)
+            }
+        case .loaded, .mutating:
+            guard let snapshot else {
+                self = .unavailable("Queue details are unavailable right now.")
+                return
+            }
+            self = .loaded(HomeFeaturedLumi(snapshot: snapshot))
+        }
     }
 }
 

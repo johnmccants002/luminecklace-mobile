@@ -15,6 +15,8 @@ private struct AppRootContent: View {
     var body: some View {
         Group {
             switch appState.route {
+            case .sessionRestoring:
+                NavigationStack { SessionRestoringView() }
             case .auth:
                 NavigationStack { WelcomeView() }
             case .postAuthBootstrap:

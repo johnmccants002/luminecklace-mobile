@@ -202,7 +202,7 @@ struct LumiAttachmentBadge: View {
                 badgeTitle,
                 systemImage: "arrow.up.right.square"
             )
-            .font(.system(size: 11, weight: .semibold, design: .rounded))
+            .font(.system(.caption2, design: .rounded, weight: .semibold))
             .foregroundStyle(LumiTheme.Colors.ink.opacity(0.62))
             .padding(.horizontal, 9)
             .padding(.vertical, 5)

@@ -3,7 +3,7 @@ import Foundation
 
 @MainActor
 final class AppState: ObservableObject {
-    @Published var route: RootRoute = .auth
+    @Published var route: RootRoute = .sessionRestoring
     @Published var user: User?
     @Published var ownedNecklaces: [NecklaceTag] = []
     @Published var packages: [Package] = MockData.defaultPackages
@@ -34,6 +34,7 @@ final class AppState: ObservableObject {
     private var didReceiveTapLink = false
     private var currentRecipientToken: String?
     private var recipientResolutionTask: Task<Void, Never>?
+    private var recipientRevealTransitionTask: Task<Void, Never>?
     private var revealConfirmationTask: Task<Void, Never>?
     private var recipientReactionTask: Task<Void, Never>?
     private var recipientResponseTask: Task<Void, Never>?
@@ -41,23 +42,25 @@ final class AppState: ObservableObject {
     private var confirmationSessionIDs: Set<String> = []
     private var recipientFeedbackSessionID: String?
     private let lastTagIdKey = "lumi_last_tag_id"
-    private let queueCachePrefix = "lumi_queue_cache_"
     private var composerEditingMessageID: String?
     private var composerEditingSection: QueueSection?
     private var composerReturnRoute: RootRoute = .senderHome
     private let notificationNavigationService: NotificationNavigationServicing
+    private let recipientRevealTransitionDelay: Duration
 
     init(
         tapResolutionService: RecipientTapServicing = TapResolutionService(),
         authService: AuthenticationServicing? = nil,
         pushNotificationManager: PushNotificationManager? = nil,
-        notificationNavigationService: NotificationNavigationServicing? = nil
+        notificationNavigationService: NotificationNavigationServicing? = nil,
+        recipientRevealTransitionDelay: Duration = .milliseconds(420)
     ) {
         let resolvedPushManager = pushNotificationManager ?? PushNotificationManager()
         self.tapResolutionService = tapResolutionService
         self.authService = authService ?? AuthService()
         self.pushNotificationManager = resolvedPushManager
         self.notificationNavigationService = notificationNavigationService ?? SenderService()
+        self.recipientRevealTransitionDelay = recipientRevealTransitionDelay
 
         resolvedPushManager.foregroundEventHandler = { [weak self] _ in
             Task { @MainActor [weak self] in
@@ -145,11 +148,20 @@ final class AppState: ObservableObject {
             return
         }
 
-        guard authService.hasAccessToken else {
+        switch authService.localSessionState {
+        case .available:
+            break
+        case .missing:
             if didReceiveTapLink {
                 return
             }
             route = .auth
+            return
+        case let .unavailable(message):
+            lastBootstrapError = message
+            if route != .recipientReveal {
+                route = .senderLoadError
+            }
             return
         }
 
@@ -162,7 +174,10 @@ final class AppState: ObservableObject {
             pushNotificationManager.updateAuthenticatedUser(id: nil)
             route = .auth
         } catch {
-            route = .auth
+            lastBootstrapError = error.localizedDescription
+            if route != .recipientReveal {
+                route = .senderLoadError
+            }
         }
     }
 
@@ -178,17 +193,21 @@ final class AppState: ObservableObject {
             return
         }
 
-        route = .postAuthBootstrap
+        if route != .recipientReveal {
+            route = .postAuthBootstrap
+        }
         lastBootstrapError = nil
 
         do {
-            ownedNecklaces = try await senderService.listSenderNecklaces()
+            ownedNecklaces = try await notificationNavigationService.listSenderNecklaces()
 
             guard !ownedNecklaces.isEmpty else {
                 queueSnapshot = nil
                 queueSyncState = .idle
                 persistedTagId = nil
-                route = .noNecklace
+                if route != .recipientReveal {
+                    route = .noNecklace
+                }
                 return
             }
 
@@ -200,18 +219,31 @@ final class AppState: ObservableObject {
                 setEquipped(necklaceId: first.id)
             }
 
-            routeAfterNecklaceSelection()
-            await consumePendingNotificationDestinationIfPossible()
-            await pushNotificationManager.considerContextualPrompt(
-                isRecipientExperienceActive: false
-            )
+            if route != .recipientReveal {
+                routeAfterNecklaceSelection()
+                await consumePendingNotificationDestinationIfPossible()
+                await pushNotificationManager.considerContextualPrompt(
+                    isRecipientExperienceActive: false
+                )
+            }
         } catch APIError.unauthorized {
             authService.clearLocalSession()
             pushNotificationManager.updateAuthenticatedUser(id: nil)
             route = .auth
         } catch {
             lastBootstrapError = error.localizedDescription
-            route = .senderLoadError
+            if route != .recipientReveal {
+                route = .senderLoadError
+            }
+        }
+    }
+
+    func retrySenderLoad() async {
+        if user == nil {
+            didAttemptSessionRestore = false
+            await restoreSessionIfNeeded()
+        } else {
+            await bootstrapSenderFlowAfterAuth()
         }
     }
 
@@ -223,26 +255,11 @@ final class AppState: ObservableObject {
         defer { isRefreshingSenderData = false }
 
         do {
-            let snapshots = try await senderService.listSenderNecklaces()
-            let snapshotsByID = snapshots.reduce(into: [String: NecklaceTag]()) {
-                $0[$1.id] = $1
-            }
-
-            ownedNecklaces = ownedNecklaces.map { necklace in
-                guard let snapshot = snapshotsByID[necklace.id] else { return necklace }
-                var updated = necklace
-                updated.lifecycleStatus = snapshot.lifecycleStatus
-                updated.recentlyRevealed = snapshot.recentlyRevealed
-                updated.reserve = snapshot.reserve
-                updated.queueSnapshot = snapshot.queueSnapshot
-                updated.nextLumi = snapshot.queueSnapshot?.current
-                updated.queuedLumis = snapshot.queueSnapshot?.upNext ?? []
-                updated.availableLumiCount = snapshot.queueSnapshot?.continuousSequence.count ?? 0
-                return updated
-            }
-
-            guard let equipped = equippedNecklace else { return }
-            syncQueueState(from: equipped)
+            let snapshots = try await notificationNavigationService.listSenderNecklaces()
+            installRefreshedNecklaces(
+                snapshots,
+                preferredNecklaceID: equippedNecklace?.id
+            )
         } catch APIError.unauthorized {
             authService.clearLocalSession()
             user = nil
@@ -257,13 +274,24 @@ final class AppState: ObservableObject {
         guard let equippedID = equippedNecklace?.id, !isQueueMutating else { return }
         queueSyncState = .loading
         do {
-            let necklaces = try await senderService.listSenderNecklaces()
+            let necklaces = try await notificationNavigationService.listSenderNecklaces()
             guard equippedNecklace?.id == equippedID else { return }
-            guard let refreshed = necklaces.first(where: { $0.id == equippedID }),
-                  let snapshot = refreshed.queueSnapshot else {
-                queueSyncState = queueSnapshot == nil
-                    ? .failed("Queue details are unavailable right now.")
-                    : .loaded
+            guard let refreshed = necklaces.first(where: { $0.id == equippedID }) else {
+                installRefreshedNecklaces(
+                    necklaces,
+                    preferredNecklaceID: equippedID
+                )
+                if !necklaces.isEmpty, route != .recipientReveal {
+                    route = .senderHome
+                }
+                return
+            }
+            ownedNecklaces = necklaces
+            setEquipped(necklaceId: refreshed.id)
+            guard let snapshot = refreshed.queueSnapshot else {
+                queueSnapshot = nil
+                queueSyncState = .failed("Queue details are unavailable right now.")
+                queueActionError = "Queue details are unavailable right now."
                 return
             }
             installQueueSnapshot(snapshot)
@@ -422,6 +450,7 @@ final class AppState: ObservableObject {
         currentRecipientToken = nil
         confirmationSessionIDs = []
         recipientResolutionTask?.cancel()
+        cancelRecipientRevealTransition()
         revealConfirmationTask?.cancel()
         recipientReactionTask?.cancel()
         recipientResponseTask?.cancel()
@@ -439,6 +468,7 @@ final class AppState: ObservableObject {
 
     func consumePendingNotificationDestinationIfPossible() async {
         guard pushNotificationManager.pendingDestination != nil else { return }
+        guard route != .recipientReveal else { return }
         guard user != nil, authService.hasAccessToken else {
             route = .auth
             return
@@ -488,12 +518,10 @@ final class AppState: ObservableObject {
         do {
             let selectedId = equippedNecklace?.id
             let snapshots = try await notificationNavigationService.listSenderNecklaces()
-            ownedNecklaces = snapshots
-            if let selectedId, snapshots.contains(where: { $0.id == selectedId }) {
-                setEquipped(necklaceId: selectedId)
-            } else if let first = snapshots.first {
-                setEquipped(necklaceId: first.id)
-            }
+            installRefreshedNecklaces(
+                snapshots,
+                preferredNecklaceID: selectedId
+            )
         } catch {
             // Preserve the last successful sender data and retry on the next lifecycle event.
         }
@@ -530,6 +558,7 @@ final class AppState: ObservableObject {
         guard FeatureFlags.senderFirstFlowEnabled else { return }
         guard let token = RecipientInvocationParser.token(from: url) else { return }
         didReceiveTapLink = true
+        cancelRecipientRevealTransition()
         route = .recipientReveal
         resolveRecipientTap(token: token)
     }
@@ -666,18 +695,30 @@ final class AppState: ObservableObject {
         }
     }
 
-    func completeRecipientHold(for lumi: ResolvedLumi) {
+    func beginAutomaticRecipientReveal(for lumi: ResolvedLumi) {
         guard case let .waiting(current) = recipientRevealState,
               current.revealSessionId == lumi.revealSessionId else {
             return
         }
 
+        cancelRecipientRevealTransition()
         recipientRevealState = .revealing(lumi)
         hapticsManager.impact(enabled: settings.hapticsEnabled)
+        let expectedToken = currentRecipientToken
+        let transitionDelay = recipientRevealTransitionDelay
 
-        Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 420_000_000)
-            guard let self, !Task.isCancelled else { return }
+        recipientRevealTransitionTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: transitionDelay)
+            } catch {
+                return
+            }
+            guard let self,
+                  !Task.isCancelled,
+                  self.currentRecipientToken == expectedToken,
+                  case let .revealing(current) = self.recipientRevealState,
+                  current.revealSessionId == lumi.revealSessionId else { return }
+            self.recipientRevealTransitionTask = nil
             self.recipientRevealState = .revealed(lumi, confirmationState: .pending)
             self.confirmRevealIfNeeded(lumi)
         }
@@ -691,6 +732,7 @@ final class AppState: ObservableObject {
         }
 
         recipientResolutionTask?.cancel()
+        cancelRecipientRevealTransition()
         if currentRecipientToken != token {
             revealConfirmationTask?.cancel()
             resetRecipientFeedbackState(for: nil)
@@ -728,8 +770,15 @@ final class AppState: ObservableObject {
     }
 
     func returnFromRecipientReveal() {
+        didReceiveTapLink = false
+        recipientResolutionTask?.cancel()
+        recipientResolutionTask = nil
+        cancelRecipientRevealTransition()
+        currentRecipientToken = nil
         if user == nil {
-            route = .auth
+            route = authService.hasAccessToken && lastBootstrapError != nil
+                ? .senderLoadError
+                : .auth
             return
         }
 
@@ -787,6 +836,11 @@ final class AppState: ObservableObject {
         recipientFeedbackState = .empty
     }
 
+    private func cancelRecipientRevealTransition() {
+        recipientRevealTransitionTask?.cancel()
+        recipientRevealTransitionTask = nil
+    }
+
     private func confirmRevealWithSingleRetry(revealSessionId: String) async throws -> ConfirmRevealResponse {
         do {
             return try await tapResolutionService.confirmReveal(revealSessionId: revealSessionId)
@@ -799,7 +853,7 @@ final class AppState: ObservableObject {
     private func reloadQueueAfterConfirmedReveal() async {
         guard let equippedID = equippedNecklace?.id else { return }
         do {
-            let snapshots = try await senderService.listSenderNecklaces()
+            let snapshots = try await notificationNavigationService.listSenderNecklaces()
             guard let refreshed = snapshots.first(where: { $0.id == equippedID }),
                   let snapshot = refreshed.queueSnapshot else { return }
             installQueueSnapshot(snapshot)
@@ -815,19 +869,38 @@ final class AppState: ObservableObject {
     }
 
     private func syncQueueState(from necklace: NecklaceTag) {
-        let cached = loadPersistedQueueMessages(necklaceID: necklace.id)
-        let fallbackSnapshot = cached.isEmpty ? nil : try? QueueSnapshot(
-            necklaceId: necklace.id,
-            revision: 0,
-            current: cached.first,
-            upNext: Array(cached.dropFirst()),
-            reserve: []
-        )
-        queueSnapshot = necklace.queueSnapshot ?? fallbackSnapshot
+        queueSnapshot = necklace.queueSnapshot
         queueSyncState = queueSnapshot == nil
             ? .failed("Queue details are unavailable right now.")
             : .loaded
         queueActionError = nil
+    }
+
+    private func installRefreshedNecklaces(
+        _ snapshots: [NecklaceTag],
+        preferredNecklaceID: String?
+    ) {
+        ownedNecklaces = snapshots
+
+        guard !snapshots.isEmpty else {
+            queueSnapshot = nil
+            queueSyncState = .idle
+            queueActionError = nil
+            persistedTagId = nil
+            if route != .recipientReveal {
+                route = .noNecklace
+            }
+            return
+        }
+
+        if let preferredNecklaceID,
+           snapshots.contains(where: { $0.id == preferredNecklaceID }) {
+            setEquipped(necklaceId: preferredNecklaceID)
+        } else if let primary = snapshots.first(where: \.isEquipped) {
+            setEquipped(necklaceId: primary.id)
+        } else if let first = snapshots.first {
+            setEquipped(necklaceId: first.id)
+        }
     }
 
     private func applyCreationResult(
@@ -1055,7 +1128,6 @@ final class AppState: ObservableObject {
     private func installQueueSnapshot(_ snapshot: QueueSnapshot) {
         queueSnapshot = snapshot
         queueSyncState = .loaded
-        persistQueueMessages(snapshot.continuousSequence, necklaceID: snapshot.necklaceId)
         ownedNecklaces = ownedNecklaces.map { necklace in
             guard necklace.id == snapshot.necklaceId else { return necklace }
             var updated = necklace
@@ -1090,21 +1162,6 @@ final class AppState: ObservableObject {
             textAlignment: composerTextAlignment,
             textPosition: composerTextPosition
         )
-    }
-
-    private func persistQueueMessages(_ messages: [Message], necklaceID: String) {
-        let key = queueCachePrefix + necklaceID
-        do {
-            UserDefaults.standard.set(try JSONEncoder().encode(messages), forKey: key)
-        } catch {
-            UserDefaults.standard.removeObject(forKey: key)
-        }
-    }
-
-    private func loadPersistedQueueMessages(necklaceID: String) -> [Message] {
-        let key = queueCachePrefix + necklaceID
-        guard let data = UserDefaults.standard.data(forKey: key) else { return [] }
-        return (try? JSONDecoder().decode([Message].self, from: data)) ?? []
     }
 
     private func reorder<T>(_ items: inout [T], from source: IndexSet, to destination: Int) {
