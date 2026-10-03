@@ -195,17 +195,19 @@ struct LumiAttachmentBadge: View {
     let attachment: LumiLinkAttachment?
 
     var body: some View {
-        if let attachment, attachment.isSupportedInstagramLink {
+        if let attachment,
+           let badgeTitle = attachment.badgeTitle,
+           let accessibilityLabel = attachment.attachmentAccessibilityLabel {
             Label(
-                "Instagram · \(attachment.displayContentKind)",
+                badgeTitle,
                 systemImage: "arrow.up.right.square"
             )
-            .font(.system(size: 11, weight: .semibold, design: .rounded))
+            .font(.system(.caption2, design: .rounded, weight: .semibold))
             .foregroundStyle(LumiTheme.Colors.ink.opacity(0.62))
             .padding(.horizontal, 9)
             .padding(.vertical, 5)
             .background(LumiTheme.Colors.roseSoft.opacity(0.62), in: Capsule())
-            .accessibilityLabel("Instagram \(attachment.displayContentKind) attachment")
+            .accessibilityLabel(accessibilityLabel)
         }
     }
 }

@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct luminecklaceApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var appState = AppState()
     @Environment(\.scenePhase) private var scenePhase
 
@@ -9,6 +10,12 @@ struct luminecklaceApp: App {
         WindowGroup {
             AppRootView()
                 .environmentObject(appState)
+                .task {
+                    appDelegate.configure(
+                        notificationManager: appState.pushNotificationManager
+                    )
+                    await appState.pushNotificationManager.start()
+                }
                 .onOpenURL { url in
                     appState.handleIncomingHandoff(url: url)
                 }
@@ -19,7 +26,7 @@ struct luminecklaceApp: App {
                 .onChange(of: scenePhase) { _, newPhase in
                     guard newPhase == .active else { return }
                     Task {
-                        await appState.refreshSenderDataIfNeeded()
+                        await appState.handleApplicationDidBecomeActive()
                     }
                 }
         }

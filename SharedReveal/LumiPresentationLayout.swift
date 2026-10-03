@@ -1,5 +1,73 @@
 import SwiftUI
 
+struct LumiScaledFontModifier: ViewModifier {
+    @ScaledMetric private var scaledSize: CGFloat
+
+    private let weight: Font.Weight
+    private let design: Font.Design
+    private let maximumSize: CGFloat?
+
+    init(
+        size: CGFloat,
+        relativeTo textStyle: Font.TextStyle,
+        weight: Font.Weight,
+        design: Font.Design,
+        maximumSize: CGFloat?
+    ) {
+        _scaledSize = ScaledMetric(wrappedValue: size, relativeTo: textStyle)
+        self.weight = weight
+        self.design = design
+        self.maximumSize = maximumSize
+    }
+
+    func body(content: Content) -> some View {
+        content.font(
+            .system(
+                size: maximumSize.map { min(scaledSize, $0) } ?? scaledSize,
+                weight: weight,
+                design: design
+            )
+        )
+    }
+}
+
+extension View {
+    func lumiScaledFont(
+        size: CGFloat,
+        relativeTo textStyle: Font.TextStyle,
+        weight: Font.Weight = .regular,
+        design: Font.Design = .default,
+        maximumSize: CGFloat? = nil
+    ) -> some View {
+        modifier(
+            LumiScaledFontModifier(
+                size: size,
+                relativeTo: textStyle,
+                weight: weight,
+                design: design,
+                maximumSize: maximumSize
+            )
+        )
+    }
+}
+
+nonisolated enum LumiLongContentLayoutPolicy {
+    static func requiresScrolling(
+        preset: LumiExperiencePresetKey,
+        primaryCharacterCount: Int,
+        primaryWordCount: Int,
+        secondaryCharacterCount: Int,
+        availableWidth: CGFloat,
+        isAccessibilitySize: Bool
+    ) -> Bool {
+        primaryCharacterCount > 180
+            || secondaryCharacterCount > 100
+            || (preset == .proudOfYou && primaryWordCount > 9)
+            || (availableWidth <= 320 && primaryCharacterCount > 100)
+            || (isAccessibilitySize && primaryCharacterCount > 70)
+    }
+}
+
 nonisolated enum LumiTextSizeKey: String, Codable, CaseIterable, Sendable {
     case small
     case medium

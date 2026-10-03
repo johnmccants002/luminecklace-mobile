@@ -2,7 +2,7 @@ import Foundation
 import UniformTypeIdentifiers
 
 nonisolated protocol ShareItemExtracting: Sendable {
-    func extract(from items: [NSExtensionItem]) async throws -> ExtractedInstagramLink?
+    func extract(from items: [NSExtensionItem]) async throws -> ExtractedShareLink?
 }
 
 nonisolated enum ShareItemExtractorError: Error {
@@ -10,7 +10,7 @@ nonisolated enum ShareItemExtractorError: Error {
 }
 
 nonisolated final class ShareItemExtractor: ShareItemExtracting, @unchecked Sendable {
-    func extract(from items: [NSExtensionItem]) async throws -> ExtractedInstagramLink? {
+    func extract(from items: [NSExtensionItem]) async throws -> ExtractedShareLink? {
         try Task.checkCancellation()
         let providers = items.flatMap { $0.attachments ?? [] }
 
@@ -27,7 +27,7 @@ nonisolated final class ShareItemExtractor: ShareItemExtracting, @unchecked Send
             try Task.checkCancellation()
             if let value = try? await load(provider, type: UTType.plainText.identifier),
                let text = Self.text(from: value),
-               let link = Self.firstInstagramLink(in: text) {
+               let link = Self.firstSupportedLink(in: text) {
                 return link
             }
         }
@@ -35,7 +35,7 @@ nonisolated final class ShareItemExtractor: ShareItemExtracting, @unchecked Send
         for item in items {
             try Task.checkCancellation()
             if let text = item.attributedContentText?.string,
-               let link = Self.firstInstagramLink(in: text) {
+               let link = Self.firstSupportedLink(in: text) {
                 return link
             }
         }
@@ -76,7 +76,7 @@ nonisolated final class ShareItemExtractor: ShareItemExtracting, @unchecked Send
         }
     }
 
-    static func firstInstagramLink(in text: String) -> ExtractedInstagramLink? {
+    static func firstSupportedLink(in text: String) -> ExtractedShareLink? {
         guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else {
             return nil
         }
@@ -89,26 +89,13 @@ nonisolated final class ShareItemExtractor: ShareItemExtracting, @unchecked Send
         return nil
     }
 
-    static func validatedLink(_ url: URL) -> ExtractedInstagramLink? {
-        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              components.scheme?.lowercased() == "https",
-              components.user == nil,
-              components.password == nil,
-              let host = components.host?.lowercased(),
-              host == "instagram.com" || host == "www.instagram.com",
-              let normalizedURL = components.url else {
-            return nil
-        }
-
-        let segments = components.path.split(separator: "/").map { $0.lowercased() }
-        let contentKind: String
-        switch segments.first {
-        case "reel", "reels": contentKind = "reel"
-        case "p", "tv": contentKind = "post"
-        case "stories": contentKind = "story"
-        case .some: contentKind = segments.count == 1 ? "profile" : "link"
-        case .none: contentKind = "link"
-        }
-        return ExtractedInstagramLink(url: normalizedURL, contentKind: contentKind)
+    static func validatedLink(_ url: URL) -> ExtractedShareLink? {
+        guard let link = LumiLinkURLPolicy.validatedLink(url) else { return nil }
+        return ExtractedShareLink(
+            url: link.url,
+            provider: link.provider,
+            host: link.host,
+            contentKind: link.contentKind
+        )
     }
 }

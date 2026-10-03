@@ -159,6 +159,49 @@ final class LumiTextLayoutTests: XCTestCase {
         XCTAssertEqual(LumiTextLayoutResolver.verticalAlignment(for: .bottom), .bottom)
     }
 
+    func testLongContentPolicyCoversCompactLandscapeAndAccessibilityLayouts() {
+        XCTAssertTrue(
+            LumiLongContentLayoutPolicy.requiresScrolling(
+                preset: .calm,
+                primaryCharacterCount: 500,
+                primaryWordCount: 90,
+                secondaryCharacterCount: 0,
+                availableWidth: 320,
+                isAccessibilitySize: false
+            )
+        )
+        XCTAssertTrue(
+            LumiLongContentLayoutPolicy.requiresScrolling(
+                preset: .proudOfYou,
+                primaryCharacterCount: 80,
+                primaryWordCount: 12,
+                secondaryCharacterCount: 0,
+                availableWidth: 568,
+                isAccessibilitySize: false
+            )
+        )
+        XCTAssertTrue(
+            LumiLongContentLayoutPolicy.requiresScrolling(
+                preset: .midnight,
+                primaryCharacterCount: 90,
+                primaryWordCount: 16,
+                secondaryCharacterCount: 0,
+                availableWidth: 390,
+                isAccessibilitySize: true
+            )
+        )
+        XCTAssertFalse(
+            LumiLongContentLayoutPolicy.requiresScrolling(
+                preset: .classicWordRise,
+                primaryCharacterCount: 45,
+                primaryWordCount: 8,
+                secondaryCharacterCount: 0,
+                availableWidth: 390,
+                isAccessibilitySize: false
+            )
+        )
+    }
+
     func testLargeLongMessagesUseReadableBoundedEffectiveSize() {
         XCTAssertEqual(
             LumiTextLayoutResolver.effectivePointSize(for: .large, characterCount: 80),

@@ -22,4 +22,8 @@ final class CollectionViewModel: ObservableObject {
     func equip(_ necklace: NecklaceTag) {
         appState.setEquipped(necklaceId: necklace.id)
     }
+
+    func retryLoad() async {
+        await appState.bootstrapSenderFlowAfterAuth()
+    }
 }

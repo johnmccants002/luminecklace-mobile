@@ -130,7 +130,11 @@ final class ExploreViewModel: ObservableObject {
     }
 
     @discardableResult
-    func enqueue(_ template: MessageTemplate, destination: QueueSection) async -> Bool {
+    func enqueue(
+        _ template: MessageTemplate,
+        destination: QueueSection,
+        customization: LibraryTextCustomization? = nil
+    ) async -> Bool {
         guard let necklace = selectedNecklace, canEnqueue else {
             actionError = "Choose an active Lumi necklace before adding a message."
             return false
@@ -147,7 +151,8 @@ final class ExploreViewModel: ObservableObject {
                 necklaceId: necklace.id,
                 request: AddLibraryMessageRequest(
                     messageId: template.id,
-                    destination: destination
+                    destination: destination,
+                    customization: customization
                 )
             )
             guard selectedNecklace?.id == necklace.id else { return false }
@@ -184,7 +189,12 @@ final class ExploreViewModel: ObservableObject {
             guard message.id == id else { return message }
             return MessageTemplate(
                 id: message.id,
+                title: message.title,
                 text: message.text,
+                secondaryText: message.secondaryText,
+                mood: message.mood,
+                durationSeconds: message.durationSeconds,
+                experiencePresetKey: message.experiencePresetKey,
                 category: message.category,
                 presentation: message.presentation,
                 isQueued: true,

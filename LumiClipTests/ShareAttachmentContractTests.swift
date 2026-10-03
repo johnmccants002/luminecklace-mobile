@@ -16,6 +16,19 @@ final class ShareAttachmentContractTests: XCTestCase {
         XCTAssertNil(textOnly.attachment)
     }
 
+    func testReadyResponseSupportsPublicWebsiteAttachment() throws {
+        var payload = readyPayload
+        payload["attachment"] = websiteAttachmentPayload
+        guard case let .ready(attached) = try decode(payload) else {
+            return XCTFail("Expected attached Lumi")
+        }
+
+        XCTAssertTrue(attached.attachment?.isSupportedWebsiteLink == true)
+        XCTAssertEqual(attached.attachment?.displayHost, "example.com")
+        XCTAssertEqual(attached.attachment?.badgeTitle, "Website · example.com")
+        XCTAssertEqual(attached.attachment?.recipientDetail, "example.com")
+    }
+
     func testMalformedAttachmentDoesNotFailResolveOrConfirmationIdentity() throws {
         var payload = readyPayload
         payload["attachment"] = ["type": 10, "provider": false]
@@ -26,6 +39,31 @@ final class ShareAttachmentContractTests: XCTestCase {
         XCTAssertNil(first.attachment)
         XCTAssertEqual(first.revealSessionId, second.revealSessionId)
         XCTAssertEqual(first, second)
+    }
+
+    func testAppClipDecodesSharedExperienceAndFallsBackForUnknownPreset() throws {
+        var richPayload = readyPayload
+        richPayload["lumi"] = [
+            "id": "lumi-1",
+            "text": "First reveal",
+            "secondaryText": "Second reveal",
+            "experiencePresetKey": "timed_surprise_v1"
+        ]
+        guard case let .ready(rich) = try decode(richPayload) else {
+            return XCTFail("Expected rich Lumi")
+        }
+        XCTAssertEqual(rich.experiencePresetKey, .timedSurprise)
+        XCTAssertEqual(rich.secondaryText, "Second reveal")
+
+        richPayload["lumi"] = [
+            "id": "lumi-2",
+            "text": "Future reveal",
+            "experiencePresetKey": "not_shipped_yet_v2"
+        ]
+        guard case let .ready(fallback) = try decode(richPayload) else {
+            return XCTFail("Expected fallback Lumi")
+        }
+        XCTAssertEqual(fallback.experiencePresetKey, .classicWordRise)
     }
 
     private func decode(_ payload: [String: Any]) throws -> ResolveTapResponse {
@@ -53,6 +91,18 @@ final class ShareAttachmentContractTests: XCTestCase {
             "url": "https://instagram.com/p/example/",
             "host": "instagram.com",
             "ctaLabel": "View on Instagram",
+            "openMode": "external"
+        ]
+    }
+
+    private var websiteAttachmentPayload: [String: Any] {
+        [
+            "type": "link",
+            "provider": "website",
+            "contentKind": "link",
+            "url": "https://example.com/article?ref=lumi",
+            "host": "example.com",
+            "ctaLabel": "Open website",
             "openMode": "external"
         ]
     }

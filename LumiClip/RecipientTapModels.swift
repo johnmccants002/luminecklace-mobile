@@ -48,6 +48,8 @@ nonisolated enum ResolveTapResponse: Decodable, Equatable {
                     necklaceDisplayName: necklace.displayName,
                     lumiId: lumi.id,
                     text: lumi.text,
+                    experiencePresetKey: lumi.experiencePresetKey ?? .classicWordRise,
+                    secondaryText: lumi.secondaryText,
                     presentation: presentation,
                     attachment: attachment
                 )
@@ -73,6 +75,8 @@ nonisolated struct ResolvedLumi: Identifiable, Hashable {
     let necklaceDisplayName: String
     let lumiId: String
     let text: String
+    let experiencePresetKey: LumiExperiencePresetKey
+    let secondaryText: String?
     let presentation: NecklacePresentation
     let attachment: LumiLinkAttachment?
 
@@ -81,6 +85,8 @@ nonisolated struct ResolvedLumi: Identifiable, Hashable {
         necklaceDisplayName: String,
         lumiId: String,
         text: String,
+        experiencePresetKey: LumiExperiencePresetKey = .classicWordRise,
+        secondaryText: String? = nil,
         presentation: NecklacePresentation,
         attachment: LumiLinkAttachment? = nil
     ) {
@@ -88,6 +94,8 @@ nonisolated struct ResolvedLumi: Identifiable, Hashable {
         self.necklaceDisplayName = necklaceDisplayName
         self.lumiId = lumiId
         self.text = text
+        self.experiencePresetKey = experiencePresetKey
+        self.secondaryText = secondaryText
         self.presentation = presentation
         self.attachment = attachment
     }
@@ -100,6 +108,8 @@ nonisolated private struct ResolvedNecklace: Decodable {
 nonisolated private struct ResolvedLumiPayload: Decodable {
     let id: String
     let text: String
+    let experiencePresetKey: LumiExperiencePresetKey?
+    let secondaryText: String?
 }
 
 nonisolated struct NecklacePresentation: Decodable, Hashable {

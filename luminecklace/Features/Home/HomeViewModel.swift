@@ -33,6 +33,21 @@ final class HomeViewModel: ObservableObject {
         appState.queueSnapshot?.current
     }
 
+    var featuredLumi: HomeFeaturedLumi {
+        HomeFeaturedLumi(snapshot: appState.queueSnapshot)
+    }
+
+    var queuePresentation: HomeQueuePresentation {
+        HomeQueuePresentation(
+            syncState: appState.queueSyncState,
+            snapshot: appState.queueSnapshot
+        )
+    }
+
+    var featuredMessage: Message? {
+        featuredLumi.message
+    }
+
     var queuedMessages: [Message] {
         appState.queueSnapshot?.upNext ?? []
     }
@@ -47,6 +62,10 @@ final class HomeViewModel: ObservableObject {
 
     var recentlyRevealed: [RevealedLumi] {
         appState.equippedNecklace?.recentlyRevealed ?? []
+    }
+
+    var notificationHomeFocusId: UUID? {
+        appState.notificationHomeFocusId
     }
 
     var greetingName: String {
@@ -83,7 +102,7 @@ final class HomeViewModel: ObservableObject {
 
     var previewRevealState: RecipientRevealState {
         HomePreviewFactory.revealState(
-            message: message,
+            message: featuredMessage,
             necklaceName: necklaceName
         )
     }
@@ -98,6 +117,10 @@ final class HomeViewModel: ObservableObject {
 
     func openLumiComposer() {
         appState.openLumiComposer()
+    }
+
+    func retryQueueLoad() async {
+        await appState.refreshQueueSnapshot()
     }
 
     func revealedSubtitle(for date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
@@ -124,6 +147,70 @@ final class HomeViewModel: ObservableObject {
     }
 }
 
+enum HomeQueuePresentation: Equatable {
+    case loading
+    case unavailable(String)
+    case loaded(HomeFeaturedLumi)
+
+    init(syncState: QueueSyncState, snapshot: QueueSnapshot?) {
+        switch syncState {
+        case .idle, .loading:
+            if let snapshot {
+                self = .loaded(HomeFeaturedLumi(snapshot: snapshot))
+            } else {
+                self = .loading
+            }
+        case let .failed(message):
+            if let snapshot {
+                self = .loaded(HomeFeaturedLumi(snapshot: snapshot))
+            } else {
+                self = .unavailable(message)
+            }
+        case .loaded, .mutating:
+            guard let snapshot else {
+                self = .unavailable("Queue details are unavailable right now.")
+                return
+            }
+            self = .loaded(HomeFeaturedLumi(snapshot: snapshot))
+        }
+    }
+}
+
+enum HomeFeaturedLumi: Equatable {
+    case current(Message)
+    case upNext(Message, count: Int)
+    case reserve(Message, count: Int)
+    case empty
+
+    init(snapshot: QueueSnapshot?) {
+        guard let snapshot else {
+            self = .empty
+            return
+        }
+
+        if let current = snapshot.current {
+            self = .current(current)
+        } else if let next = snapshot.upNext.first {
+            self = .upNext(next, count: snapshot.upNext.count)
+        } else if let reserve = snapshot.reserve.first {
+            self = .reserve(reserve, count: snapshot.reserve.count)
+        } else {
+            self = .empty
+        }
+    }
+
+    var message: Message? {
+        switch self {
+        case let .current(message),
+             let .upNext(message, _),
+             let .reserve(message, _):
+            message
+        case .empty:
+            nil
+        }
+    }
+}
+
 enum HomeGreeting {
     static let pacificTimeZone = TimeZone(identifier: "America/Los_Angeles")!
 
@@ -146,6 +233,8 @@ enum HomeGreeting {
 }
 
 enum HomePreviewFactory {
+    static let feedbackPresentationState: RecipientFeedbackPresentationState = .disabled
+
     static func revealState(
         message: Message?,
         necklaceName: String
@@ -177,7 +266,10 @@ enum HomePreviewFactory {
             necklaceDisplayName: necklaceName,
             lumiId: message.id,
             text: message.text,
-            presentation: presentation
+            experiencePresetKey: message.experiencePresetKey ?? .classicWordRise,
+            secondaryText: message.secondaryText,
+            presentation: presentation,
+            attachment: message.attachment
         )
 
         return .revealed(lumi, confirmationState: .pending)

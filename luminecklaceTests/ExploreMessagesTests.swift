@@ -37,6 +37,33 @@ final class ExploreMessagesTests: XCTestCase {
         XCTAssertEqual(response.nextCursor, "opaque+cursor/value")
     }
 
+    func testDecodesProductionExperienceCatalogFields() throws {
+        let json = """
+        {
+          "categories": [],
+          "messages": [{
+            "id": "00000000-0000-4000-8000-000000000007",
+            "title": "Something to Tell You",
+            "text": "I have something to tell you…",
+            "secondaryText": "I'm really glad you're in my life.",
+            "mood": "Heartfelt",
+            "durationSeconds": 10,
+            "experiencePresetKey": "timed_surprise_v1",
+            "category": {"key": "affection", "name": "Affection"},
+            "presentation": {"theme": "midnight", "animation": "breathe", "sound": "soft"}
+          }],
+          "nextCursor": null
+        }
+        """
+        let message = try XCTUnwrap(
+            JSONDecoder().decode(MessageLibraryResponse.self, from: Data(json.utf8)).messages.first
+        )
+        XCTAssertEqual(message.title, "Something to Tell You")
+        XCTAssertEqual(message.secondaryText, "I'm really glad you're in my life.")
+        XCTAssertEqual(message.experiencePresetKey, .timedSurprise)
+        XCTAssertEqual(message.durationSeconds, 10)
+    }
+
     func testQueryItemsNormalizeAndSafelyEncodeCategorySearchCursorAndNecklace() throws {
         let query = MessageLibraryQuery(
             category: "comfort & care",
@@ -136,6 +163,24 @@ final class ExploreMessagesTests: XCTestCase {
         XCTAssertEqual(service.addRequests.first?.request.messageId, template.id)
         XCTAssertEqual(service.addRequests.first?.request.destination, .reserve)
         XCTAssertEqual(viewModel.confirmation, "Added to Reserve as #1")
+    }
+
+    func testCustomizedEnqueueCarriesOnlyTextSlots() async {
+        let service = MockLibraryService()
+        service.addResult = .success(Self.senderLumi(position: 1))
+        let viewModel = makeViewModel(service: service)
+        let customization = LibraryTextCustomization(
+            primaryText: "A personal first reveal",
+            secondaryText: "A personal second reveal"
+        )
+
+        let succeeded = await viewModel.enqueue(
+            Self.template(),
+            destination: .reserve,
+            customization: customization
+        )
+        XCTAssertTrue(succeeded)
+        XCTAssertEqual(service.addRequests.first?.request.customization, customization)
     }
 
     func testMultipleNecklaceTargetingReloadsUsageAndResetsConfirmation() async {

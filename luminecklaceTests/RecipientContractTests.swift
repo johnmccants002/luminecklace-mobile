@@ -50,6 +50,32 @@ final class RecipientContractTests: XCTestCase {
         XCTAssertEqual(try decode(["status": "unavailable"]), .unavailable)
     }
 
+    func testExperiencePresetAndSecondaryTextDecodeWithUnknownFallback() throws {
+        var richPayload = Fixtures.readyResponse
+        richPayload["lumi"] = [
+            "id": "surprise-id",
+            "text": "I have something to tell you…",
+            "secondaryText": "I'm really glad you're in my life.",
+            "experiencePresetKey": "timed_surprise_v1"
+        ]
+        guard case let .ready(rich) = try decode(richPayload) else {
+            return XCTFail("Expected a ready response")
+        }
+        XCTAssertEqual(rich.experiencePresetKey, .timedSurprise)
+        XCTAssertEqual(rich.secondaryText, "I'm really glad you're in my life.")
+
+        var futurePayload = richPayload
+        futurePayload["lumi"] = [
+            "id": "future-id",
+            "text": "Future message",
+            "experiencePresetKey": "future_animation_v9"
+        ]
+        guard case let .ready(future) = try decode(futurePayload) else {
+            return XCTFail("Expected a ready response")
+        }
+        XCTAssertEqual(future.experiencePresetKey, .classicWordRise)
+    }
+
     private func decode(_ payload: [String: Any]) throws -> ResolveTapResponse {
         let data = try JSONSerialization.data(withJSONObject: payload)
         return try JSONDecoder().decode(ResolveTapResponse.self, from: data)

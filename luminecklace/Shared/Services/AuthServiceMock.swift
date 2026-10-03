@@ -4,7 +4,23 @@ struct AuthResult {
     let user: User
 }
 
-struct AuthService {
+protocol AuthenticationServicing {
+    func signIn(email: String, password: String) async throws -> AuthResult
+    func resetPassword(email: String) async throws
+    func me() async throws -> User
+    func signOut() async throws
+    func clearLocalSession()
+    var hasAccessToken: Bool { get }
+    var localSessionState: LocalSessionState { get }
+}
+
+extension AuthenticationServicing {
+    var localSessionState: LocalSessionState {
+        hasAccessToken ? .available : .missing
+    }
+}
+
+struct AuthService: AuthenticationServicing {
     private let client: APIClient
 
     init(client: APIClient = .shared) {
@@ -23,12 +39,17 @@ struct AuthService {
 
         guard let token = parseToken(from: payload) else {
             client.tokenStore.accessToken = nil
-            throw APIError.unauthorized
+            throw APIError.invalidPayload
         }
         client.tokenStore.accessToken = token
 
-        let user = try await resolveUser(from: payload, fallbackEmail: email)
-        return AuthResult(user: user)
+        do {
+            let user = try await resolveUser(from: payload)
+            return AuthResult(user: user)
+        } catch {
+            client.tokenStore.accessToken = nil
+            throw error
+        }
     }
 
     func resetPassword(email: String) async throws {
@@ -71,23 +92,18 @@ struct AuthService {
         return false
     }
 
-    private func resolveUser(from payload: [String: Any], fallbackEmail: String) async throws -> User {
+    var localSessionState: LocalSessionState {
+        client.tokenStore.localSessionState
+    }
+
+    private func resolveUser(from payload: [String: Any]) async throws -> User {
         if let user = parseUser(from: payload) {
             return user
         }
         if hasAccessToken {
-            do {
-                return try await me()
-            } catch {
-                // Continue with a local fallback when /me is unavailable.
-            }
+            return try await me()
         }
-        return User(
-            id: UUID().uuidString,
-            email: fallbackEmail,
-            displayName: nil,
-            subscriptionTier: .free
-        )
+        throw APIError.invalidPayload
     }
 
     private func parseToken(from payload: [String: Any]) -> String? {
@@ -139,10 +155,10 @@ struct AuthService {
     }
 
     private func mapUser(from dict: [String: Any]) -> User? {
-        guard let email = JSONLookup.string(dict, keys: ["email"]) else {
+        guard let id = JSONLookup.string(dict, keys: ["id", "_id", "userId"]),
+              let email = JSONLookup.string(dict, keys: ["email"]) else {
             return nil
         }
-        let id = JSONLookup.string(dict, keys: ["id", "_id", "userId"]) ?? UUID().uuidString
         let metadata = JSONLookup.dictionary(
             dict,
             keys: ["profile", "userMetadata", "user_metadata", "metadata"]

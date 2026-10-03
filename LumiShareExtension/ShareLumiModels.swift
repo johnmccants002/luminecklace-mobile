@@ -50,6 +50,10 @@ nonisolated struct ShareNecklaceListResponse: Decodable {
     }
 
     init(from decoder: Decoder) throws {
+        if let array = try? decoder.singleValueContainer().decode([ShareNecklace].self) {
+            necklaces = array
+            return
+        }
         let container = try decoder.container(keyedBy: CodingKeys.self)
         if let direct = (try? container.decode([ShareNecklace].self, forKey: .necklaces))
             ?? (try? container.decode([ShareNecklace].self, forKey: .items))
@@ -63,11 +67,12 @@ nonisolated struct ShareNecklaceListResponse: Decodable {
             necklaces = nested.necklaces
             return
         }
-        if let array = try? decoder.singleValueContainer().decode([ShareNecklace].self) {
-            necklaces = array
-            return
-        }
-        necklaces = []
+        throw DecodingError.dataCorrupted(
+            .init(
+                codingPath: decoder.codingPath,
+                debugDescription: "Expected a recognized necklace collection."
+            )
+        )
     }
 }
 
@@ -141,12 +146,19 @@ nonisolated struct CreateSharedLumiResponse: Decodable, Equatable {
     }
 }
 
-nonisolated struct ExtractedInstagramLink: Equatable {
+nonisolated struct ExtractedShareLink: Equatable {
     let url: URL
+    let provider: LumiLinkProvider
+    let host: String
     let contentKind: String
 
+    var displayProviderName: String {
+        provider.displayName
+    }
+
     var displayContentKind: String {
-        switch contentKind {
+        guard provider == .instagram else { return host }
+        return switch contentKind {
         case "reel": "Reel"
         case "post": "Post"
         case "story": "Story"

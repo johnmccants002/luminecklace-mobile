@@ -11,7 +11,7 @@ struct ShareLumiRootView: View {
             Group {
                 switch viewModel.state {
                 case .extracting:
-                    progress("Reading Instagram link…")
+                    progress("Reading link…")
                 case .loadingNecklaces:
                     progress("Finding your necklaces…")
                 case .ready, .submitting:
@@ -35,8 +35,8 @@ struct ShareLumiRootView: View {
                 case .unsupportedShare:
                     status(
                         icon: "link.badge.plus",
-                        title: "Instagram link not found",
-                        message: "This Instagram link couldn’t be read.",
+                        title: "Website link not found",
+                        message: "This public HTTPS link couldn’t be read.",
                         retry: true
                     )
                 case let .failure(message):
@@ -78,7 +78,7 @@ struct ShareLumiRootView: View {
     private var compose: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                instagramPreview
+                linkPreview
                 messageEditor
                 destinationControls
 
@@ -103,19 +103,27 @@ struct ShareLumiRootView: View {
         }
     }
 
-    private var instagramPreview: some View {
+    private var linkPreview: some View {
         HStack(spacing: 14) {
-            Image(systemName: "play.rectangle.on.rectangle")
+            Image(
+                systemName: viewModel.extractedLink?.provider == .instagram
+                    ? "play.rectangle.on.rectangle"
+                    : "link"
+            )
                 .font(.system(size: 24, weight: .medium))
                 .foregroundStyle(Color(red: 0.78, green: 0.18, blue: 0.31))
                 .frame(width: 48, height: 48)
                 .background(Color(red: 0.98, green: 0.90, blue: 0.92), in: RoundedRectangle(cornerRadius: 13))
 
             VStack(alignment: .leading, spacing: 3) {
-                Text("Instagram").font(.headline)
-                Text(viewModel.extractedLink?.displayContentKind ?? "Instagram link")
+                Text(viewModel.extractedLink?.displayProviderName ?? "Website")
+                    .font(.headline)
+                Text(viewModel.extractedLink?.displayContentKind ?? "Website link")
                     .font(.subheadline).foregroundStyle(.secondary)
-                Text("instagram.com").font(.caption).foregroundStyle(.tertiary)
+                if viewModel.extractedLink?.provider == .instagram,
+                   let host = viewModel.extractedLink?.host {
+                    Text(host).font(.caption).foregroundStyle(.tertiary)
+                }
             }
             Spacer()
         }

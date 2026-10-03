@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 import XCTest
 
 final class ShareItemExtractorTests: XCTestCase {
-    func testURLProviderAndWWWHost() async throws {
+    func testInstagramURLProviderAndWWWHost() async throws {
         let provider = NSItemProvider(
             item: NSURL(string: "https://www.instagram.com/reel/example/")!,
             typeIdentifier: UTType.url.identifier
@@ -12,30 +12,67 @@ final class ShareItemExtractorTests: XCTestCase {
         let item = NSExtensionItem()
         item.attachments = [provider]
         let link = try await ShareItemExtractor().extract(from: [item])
+        XCTAssertEqual(link?.provider, .instagram)
         XCTAssertEqual(link?.contentKind, "reel")
-        XCTAssertEqual(link?.url.host, "www.instagram.com")
+        XCTAssertEqual(link?.host, "www.instagram.com")
     }
 
-    func testPlainTextSelectsFirstSupportedInstagramLink() async throws {
+    func testPublicWebsiteURLPreservesPathQueryAndFragment() async throws {
+        let source = URL(string: "https://Example.com/articles/one?ref=lumi#details")!
+        let link = ShareItemExtractor.validatedLink(source)
+        XCTAssertEqual(link?.provider, .website)
+        XCTAssertEqual(link?.contentKind, "link")
+        XCTAssertEqual(link?.host, "example.com")
+        XCTAssertEqual(link?.url.path, "/articles/one")
+        XCTAssertEqual(link?.url.query, "ref=lumi")
+        XCTAssertEqual(link?.url.fragment, "details")
+    }
+
+    func testInternationalHostnameUsesASCIIRepresentation() {
+        let link = ShareItemExtractor.validatedLink(URL(string: "https://bücher.de/path")!)
+        XCTAssertEqual(link?.provider, .website)
+        XCTAssertEqual(link?.host, "xn--bcher-kva.de")
+        XCTAssertEqual(link?.url.host, "xn--bcher-kva.de")
+    }
+
+    func testPlainTextSelectsFirstSupportedLink() async throws {
         let provider = NSItemProvider(
             item: NSString(
-                string: "https://example.com/no https://instagram.com.attacker.example/p/no https://instagram.com/p/yes/"
+                string: "http://unsafe.test/no https://example.com/first https://instagram.com/p/second/"
             ),
             typeIdentifier: UTType.plainText.identifier
         )
         let item = NSExtensionItem()
         item.attachments = [provider]
         let link = try await ShareItemExtractor().extract(from: [item])
-        XCTAssertEqual(link?.url.path, "/p/yes")
-        XCTAssertEqual(link?.contentKind, "post")
+        XCTAssertEqual(link?.url.path, "/first")
+        XCTAssertEqual(link?.provider, .website)
     }
 
-    func testRejectsHTTPAndLookalikeHostsAndMissingItems() async throws {
+    func testRejectsUnsafeAndPrivateDestinations() async throws {
         XCTAssertNil(ShareItemExtractor.validatedLink(URL(string: "http://instagram.com/p/no/")!))
-        XCTAssertNil(ShareItemExtractor.validatedLink(URL(string: "https://notinstagram.com/p/no/")!))
-        XCTAssertNil(ShareItemExtractor.validatedLink(URL(string: "https://instagram.com.attacker.example/p/no/")!))
+        XCTAssertNil(ShareItemExtractor.validatedLink(URL(string: "https://user:pass@example.com/no")!))
+        XCTAssertNil(ShareItemExtractor.validatedLink(URL(string: "https://localhost/no")!))
+        XCTAssertNil(ShareItemExtractor.validatedLink(URL(string: "https://service.local/no")!))
+        XCTAssertNil(ShareItemExtractor.validatedLink(URL(string: "https://127.0.0.1/no")!))
+        XCTAssertNil(ShareItemExtractor.validatedLink(URL(string: "https://127.1/no")!))
+        XCTAssertNil(ShareItemExtractor.validatedLink(URL(string: "https://192.168.1.2/no")!))
+        XCTAssertNil(ShareItemExtractor.validatedLink(URL(string: "https://[::1]/no")!))
+        XCTAssertNil(ShareItemExtractor.validatedLink(URL(string: "https://[fc00::1]/no")!))
+        XCTAssertEqual(
+            ShareItemExtractor.validatedLink(URL(string: "https://8.8.8.8/")!)?.provider,
+            .website
+        )
         let missing = try await ShareItemExtractor().extract(from: [])
         XCTAssertNil(missing)
+    }
+
+    func testInstagramLookalikeIsWebsiteNotInstagram() {
+        let link = ShareItemExtractor.validatedLink(
+            URL(string: "https://instagram.com.attacker.net/p/no/")!
+        )
+        XCTAssertEqual(link?.provider, .website)
+        XCTAssertEqual(link?.host, "instagram.com.attacker.net")
     }
 
     func testCancelledExtractionThrows() async {
@@ -57,8 +94,10 @@ final class ShareItemExtractorTests: XCTestCase {
 @MainActor
 final class ShareLumiViewModelTests: XCTestCase {
     func testDefaultsPrimarySelectionAndStableRetryID() async throws {
-        let extractor = MockExtractor(result: ExtractedInstagramLink(
+        let extractor = MockExtractor(result: ExtractedShareLink(
             url: URL(string: "https://instagram.com/reel/example/")!,
+            provider: .instagram,
+            host: "instagram.com",
             contentKind: "reel"
         ))
         let service = MockShareService(
@@ -108,8 +147,10 @@ final class ShareLumiViewModelTests: XCTestCase {
     }
 
     func testAuthenticationAndNoEligibleStates() async throws {
-        let extractor = MockExtractor(result: ExtractedInstagramLink(
+        let extractor = MockExtractor(result: ExtractedShareLink(
             url: URL(string: "https://instagram.com/p/example/")!,
+            provider: .instagram,
+            host: "instagram.com",
             contentKind: "post"
         ))
         let authService = MockShareService(
@@ -239,6 +280,34 @@ final class ShareLumiServiceTests: XCTestCase {
         XCTAssertNil(try tokenStore.read())
     }
 
+    func testMalformedNecklaceListsFailInsteadOfLookingEmpty() async {
+        let tokenStore = makeTokenStore(token: "token")
+        let service = ShareLumiService(
+            baseURL: URL(string: "https://example.test")!,
+            session: makeSession(),
+            tokenStore: tokenStore
+        )
+
+        for body in [
+            #"{"status":"ok"}"#,
+            #"{"necklaces":[{"name":"Missing ID"}]}"#,
+            #"{"necklaces":[{"id":"valid"},{"name":"Partially malformed"}]}"#
+        ] {
+            URLProtocolStub.handler = { Self.response($0, status: 200, body: body) }
+            await XCTAssertThrowsShareError(.invalidResponse) {
+                _ = try await service.fetchEligibleNecklaces()
+            }
+        }
+
+        URLProtocolStub.handler = { Self.response($0, status: 200, body: #"{"necklaces":[]}"#) }
+        do {
+            let necklaces = try await service.fetchEligibleNecklaces()
+            XCTAssertTrue(necklaces.isEmpty)
+        } catch {
+            XCTFail("A real empty collection should remain valid: \(error)")
+        }
+    }
+
     private func makeSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [URLProtocolStub.self]
@@ -285,9 +354,9 @@ final class ShareLumiServiceTests: XCTestCase {
 }
 
 private final class MockExtractor: ShareItemExtracting, @unchecked Sendable {
-    let result: ExtractedInstagramLink?
-    init(result: ExtractedInstagramLink?) { self.result = result }
-    func extract(from items: [NSExtensionItem]) async throws -> ExtractedInstagramLink? { result }
+    let result: ExtractedShareLink?
+    init(result: ExtractedShareLink?) { self.result = result }
+    func extract(from items: [NSExtensionItem]) async throws -> ExtractedShareLink? { result }
 }
 
 private final class MockShareService: ShareLumiServicing, @unchecked Sendable {
