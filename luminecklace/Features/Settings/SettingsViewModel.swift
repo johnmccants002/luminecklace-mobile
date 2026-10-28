@@ -9,6 +9,10 @@ enum PushPreferenceKind {
 
 @MainActor
 final class SettingsViewModel: ObservableObject {
+    // No actor-isolated cleanup is needed. Avoid the simulator runtime's
+    // isolated-deinit crash when the tab hierarchy is released.
+    nonisolated deinit {}
+
     @Published var soundEnabled: Bool
     @Published var hapticsEnabled: Bool
     @Published private(set) var permissionState: PushNotificationPermissionState

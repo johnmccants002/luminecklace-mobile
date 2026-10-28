@@ -53,11 +53,14 @@ struct AuthService: AuthenticationServicing {
     }
 
     func resetPassword(email: String) async throws {
-        _ = try await client.requestObject(
+        let response = try await client.requestObject(
             method: .post,
             path: "/api/auth/password/reset",
             body: ["email": email]
         )
+        guard response["success"] as? Bool == true else {
+            throw APIError.invalidPayload
+        }
     }
 
     func me() async throws -> User {

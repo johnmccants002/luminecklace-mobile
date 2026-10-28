@@ -3,6 +3,9 @@ import Foundation
 
 @MainActor
 final class CollectionViewModel: ObservableObject {
+    // This navigation model needs no actor-isolated teardown.
+    nonisolated deinit {}
+
     private let appState: AppState
     private var cancellables = Set<AnyCancellable>()
 

@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct PrimaryButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(LumiTheme.Typography.body(17).weight(.semibold))
@@ -9,15 +11,15 @@ struct PrimaryButtonStyle: ButtonStyle {
             .frame(maxWidth: .infinity)
             .background(
                 LinearGradient(
-                    colors: [LumiTheme.Colors.rose, LumiTheme.Colors.gold],
+                    colors: [LumiTheme.Colors.rose, LumiTheme.Colors.rose],
                     startPoint: .leading,
                     endPoint: .trailing
                 )
-                .opacity(configuration.isPressed ? 0.85 : 1)
+                .opacity(!isEnabled ? 0.45 : (configuration.isPressed ? 0.85 : 1))
             )
             .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
             .shadow(color: LumiTheme.Colors.rose.opacity(0.18), radius: 10, y: 6)
-            .scaleEffect(configuration.isPressed ? 0.99 : 1)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.99 : 1)
     }
 }
 

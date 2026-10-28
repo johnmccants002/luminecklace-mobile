@@ -232,6 +232,23 @@ final class RecipientFeedbackTests: XCTestCase {
         XCTAssertEqual(current.revealSessionId, "session-new")
     }
 
+    func testLeavingRevealCancelsAutomaticTransitionBeforeConsumption() async throws {
+        let lumi = makeLumi(sessionID: "exit-before-reveal")
+        let service = FullAppMockTapService(resolveResults: [.success(.ready(lumi))])
+        let app = AppState(tapResolutionService: service, recipientRevealTransitionDelay: .milliseconds(80))
+        app.handleIncomingHandoff(url: try XCTUnwrap(URL(string: "https://www.luminecklace.com/t/exit")))
+        try await waitUntil {
+            if case .waiting = app.recipientRevealState { return true }
+            return false
+        }
+        app.beginAutomaticRecipientReveal(for: lumi)
+        app.returnFromRecipientReveal()
+        try await Task.sleep(for: .milliseconds(120))
+        XCTAssertEqual(app.route, .auth)
+        XCTAssertEqual(app.recipientRevealState, .awaitingInvocation)
+        XCTAssertTrue(service.confirmRequests.isEmpty)
+    }
+
     private func revealed(id: String, feedback: Any?) -> [String: Any] {
         var result: [String: Any] = [
             "id": id,

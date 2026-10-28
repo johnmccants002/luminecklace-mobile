@@ -15,6 +15,10 @@ final class MessageLibraryService: MessageLibraryServing {
         self.client = client
     }
 
+    // Teardown needs no actor hop; this also avoids nested isolated-deinit
+    // runtime failures when a short-lived catalog is released synchronously.
+    nonisolated deinit {}
+
     func library(query: MessageLibraryQuery) async throws -> MessageLibraryResponse {
         try await client.request(
             method: .get,

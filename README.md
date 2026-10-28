@@ -4,7 +4,7 @@ This Xcode project contains the full Luminecklace app, the recipient App Clip, a
 
 ## Share to Lumi
 
-Share to Lumi lets a signed-in sender share a public HTTPS website or Instagram link into a necklace queue without downloading the destination content. From Safari, Instagram, or another app, choose **Share**, select **Lumi**, confirm the necklace and message, choose **Up Next** or **Reserve**, and tap **Add to Lumi**. The extension submits the link while it is open and closes only after the backend confirms success.
+Share to Lumi lets a signed-in sender share a public HTTPS website or Instagram link into a necklace queue without downloading the destination content. From Safari, Instagram, or another app, choose **Share**, select **Lumi**, confirm the necklace and message, choose **Up Next** or **Reserve**, and tap **Add to Up Next** or **Add to Reserve**. In the app, sharing instructions are available from Explore’s share icon or Settings → Share a link to Lumi. The extension submits the link while it is open and closes only after the backend confirms success.
 
 The recipient still sees the Lumi message first. After the shared word-reveal presentation reaches its completed phase, the App Clip or full app fades in a dedicated link action. Instagram uses **View on Instagram**; other websites use **Open website** and display the validated hostname. The app opens only the normalized HTTPS URL after an explicit tap and never opens links automatically.
 

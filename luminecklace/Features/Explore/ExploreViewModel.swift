@@ -11,29 +11,55 @@ final class ExploreViewModel: ObservableObject {
         case failed(String)
     }
 
+    @Published private(set) var savedMessages: [MessageTemplate] = []
     @Published var categories: [MessageCategory] = []
     @Published var messages: [MessageTemplate] = []
     @Published var selectedCategoryKey: String?
     @Published var searchText = ""
     @Published private(set) var state: CatalogState = .idle
     @Published private(set) var loadingMore = false
+    @Published private(set) var paginationError: String?
     @Published private(set) var enqueuingMessageIDs: Set<String> = []
     @Published private(set) var confirmation: String?
     @Published private(set) var actionError: String?
 
     private let appState: AppState
     private let service: MessageLibraryServing
+    private let bookmarkDefaults: UserDefaults
+    private let bookmarkKey: String
     private var nextCursor: String?
     private var requestGeneration = 0
     private var loadedNecklaceId: String?
 
     init(
         appState: AppState,
-        service: MessageLibraryServing? = nil
+        service: MessageLibraryServing? = nil,
+        bookmarkDefaults: UserDefaults = .standard
     ) {
         self.appState = appState
         self.service = service ?? MessageLibraryService()
+        self.bookmarkDefaults = bookmarkDefaults
+        self.bookmarkKey = "lumi.saved-inspiration.\(appState.user?.id ?? "guest")"
+        if let data = bookmarkDefaults.data(forKey: bookmarkKey),
+           let messages = try? JSONDecoder().decode([MessageTemplate].self, from: data) {
+            savedMessages = messages
+        }
     }
+
+    func toggleSaved(_ template: MessageTemplate) {
+        if savedMessages.contains(where: { $0.id == template.id }) {
+            savedMessages.removeAll { $0.id == template.id }
+        } else {
+            savedMessages.insert(template, at: 0)
+        }
+        if let data = try? JSONEncoder().encode(savedMessages) {
+            bookmarkDefaults.set(data, forKey: bookmarkKey)
+        }
+    }
+
+    // Teardown needs no actor hop; this also avoids nested isolated-deinit
+    // runtime failures when a short-lived catalog is released synchronously.
+    nonisolated deinit {}
 
     var necklaces: [NecklaceTag] { appState.ownedNecklaces }
     var selectedNecklace: NecklaceTag? { appState.equippedNecklace }
@@ -53,6 +79,7 @@ final class ExploreViewModel: ObservableObject {
         loadedNecklaceId = necklaceId
         state = .loading
         nextCursor = nil
+        paginationError = nil
         actionError = nil
 
         do {
@@ -98,6 +125,7 @@ final class ExploreViewModel: ObservableObject {
               let cursor = nextCursor,
               !loadingMore else { return }
         loadingMore = true
+        paginationError = nil
         defer { loadingMore = false }
         let generation = requestGeneration
 
@@ -117,7 +145,7 @@ final class ExploreViewModel: ObservableObject {
             state = messages.isEmpty ? .empty : .loaded
         } catch {
             guard generation == requestGeneration else { return }
-            actionError = "More messages couldn’t be loaded. Please try again."
+            paginationError = "More messages couldn’t be loaded. Please try again."
         }
     }
 

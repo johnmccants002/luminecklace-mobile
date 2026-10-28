@@ -2,100 +2,40 @@ import SwiftUI
 
 struct HomeView: View {
     @ObservedObject var viewModel: HomeViewModel
-    @State private var showHeader = false
-    @State private var showHero = false
-    @State private var showSections = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showPreviewSheet = false
-    @State private var driftPulse = false
     @State private var selectedRecentLumi: RevealedLumi?
 
-    private var heroQuote: String {
-        viewModel.featuredMessage?.text ?? "Write your first Lumi so her necklace has a moment to hold."
-    }
-
-    private var heroStatusText: String {
-        switch viewModel.featuredLumi {
-        case .current:
-            "Waiting for her"
-        case .upNext:
-            "Queued in Up Next"
-        case .reserve:
-            "Saved in Reserve"
-        case .empty:
-            "Needs your first Lumi"
-        }
-    }
-
-    private var summaryLines: [(systemImage: String, text: String)] {
-        switch viewModel.featuredLumi {
-        case .current:
-            return [
-                ("lock.fill", "Not revealed yet"),
-                ("clock.fill", "Saved and ready to send")
-            ]
-        case let .upNext(_, count):
-            return [
-                ("clock.fill", "Waiting in Up Next"),
-                ("tray.full.fill", count == 1 ? "1 Lumi ready" : "\(count) Lumis ready")
-            ]
-        case let .reserve(_, count):
-            return [
-                ("archivebox.fill", "Waiting in Reserve"),
-                ("tray.full.fill", count == 1 ? "1 Lumi saved" : "\(count) Lumis saved")
-            ]
-        case .empty:
-            return [
-                ("lock.fill", "No Lumi published yet"),
-                ("clock.fill", "Tap Add a Lumi to begin")
-            ]
-        }
-    }
-
-    private var upNextItems: [Message] {
-        viewModel.queuedMessages
-    }
-
-    private var recentItems: [RevealedLumi] {
-        viewModel.recentlyRevealed
-    }
-
-    private var reserveItems: [Message] {
-        viewModel.reserveMessages
-    }
+    private var recentItems: [RevealedLumi] { viewModel.recentlyRevealed }
 
     var body: some View {
         ZStack {
-            background
-
+            LumiTheme.Colors.pageBackground.ignoresSafeArea()
             ScrollViewReader { proxy in
-                ScrollView(showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 18) {
-                    header
-                        .opacity(showHeader ? 1 : 0)
-                        .offset(y: showHeader ? 0 : 10)
-
-                    greetingBlock
-                        .opacity(showHeader ? 1 : 0)
-                        .offset(y: showHeader ? 0 : 10)
-
-                    queueContent
-
-                    Spacer(minLength: 4)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        header
+                        if let notice = viewModel.composerNotice {
+                            LumiSuccessBanner(message: notice, onDismiss: viewModel.dismissComposerNotice)
+                        }
+                        queueContent
+                        Text("Reveals & responses")
+                            .font(LumiTheme.Typography.headline(24))
+                            .id("recently-revealed")
+                        recentActivityCard
+                    }
+                    .padding(20)
                 }
-                    .padding(.horizontal, 18)
-                    .padding(.top, 10)
-                    .padding(.bottom, 24)
-                }
+                .refreshable { await viewModel.retryQueueLoad() }
                 .onChange(of: viewModel.notificationHomeFocusId) { _, focusId in
                     guard focusId != nil else { return }
-                    withAnimation(.easeInOut) {
+                    withAnimation(reduceMotion ? nil : .easeInOut) {
                         proxy.scrollTo("recently-revealed", anchor: .top)
                     }
                 }
             }
         }
-        .preferredColorScheme(.light)
-        .navigationBarTitleDisplayMode(.inline)
+        .foregroundStyle(LumiTheme.Colors.ink)
         .toolbar(.hidden, for: .navigationBar)
         .fullScreenCover(isPresented: $showPreviewSheet) {
             HomeAppClipPreview(revealState: viewModel.previewRevealState)
@@ -105,25 +45,32 @@ struct HomeView: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
-        .onAppear {
-            withAnimation(.easeOut(duration: 0.5)) {
-                showHeader = true
-            }
+    }
 
-            Task {
-                try? await Task.sleep(for: .milliseconds(120))
-                withAnimation(.easeOut(duration: 0.55)) {
-                    showHero = true
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Lumi").font(LumiTheme.Typography.display(34))
+                Spacer()
+                if viewModel.necklaces.count > 1 {
+                    Menu {
+                        ForEach(viewModel.necklaces) { necklace in
+                            Button { viewModel.chooseNecklace(necklace.id) } label: {
+                                if necklace.isEquipped { Label(necklace.name, systemImage: "checkmark") }
+                                else { Text(necklace.name) }
+                            }
+                        }
+                    } label: {
+                        Label("Switch necklace", systemImage: "chevron.up.chevron.down")
+                            .font(.subheadline)
+                            .frame(minHeight: 44)
+                    }
                 }
-
-                try? await Task.sleep(for: .milliseconds(120))
-                withAnimation(.easeOut(duration: 0.55)) {
-                    showSections = true
-                }
             }
-
-            withAnimation(.easeInOut(duration: 4.5).repeatForever(autoreverses: true)) {
-                driftPulse.toggle()
+            TimelineView(.periodic(from: .now, by: 60)) { context in
+                Text("\(viewModel.greeting(for: context.date)), \(viewModel.greetingName).")
+                    .font(.subheadline)
+                    .foregroundStyle(LumiTheme.Colors.ink.opacity(0.75))
             }
         }
     }
@@ -132,412 +79,65 @@ struct HomeView: View {
     private var queueContent: some View {
         switch viewModel.queuePresentation {
         case .loading:
-            HomeQueueStatusCard(
-                title: "Loading your Lumis…",
-                detail: "Checking what’s waiting in your necklace.",
-                systemImage: "sparkles",
-                showsProgress: true
-            )
+            HomeQueueStatusCard(title: "Loading your Lumis…", detail: "Checking what’s ready for the next tap.", systemImage: "sparkles", showsProgress: true)
         case let .unavailable(message):
-            HomeQueueStatusCard(
-                title: "Your queue couldn’t load",
-                detail: message,
-                systemImage: "wifi.exclamationmark",
-                retryAction: { Task { await viewModel.retryQueueLoad() } }
-            )
+            HomeQueueStatusCard(title: "Your messages couldn’t load", detail: message, systemImage: "wifi.exclamationmark", retryAction: { Task { await viewModel.retryQueueLoad() } })
         case .loaded:
-            loadedQueueContent
-        }
-    }
-
-    @ViewBuilder
-    private var loadedQueueContent: some View {
-        featuredCard
-            .opacity(showHero ? 1 : 0)
-            .offset(y: showHero ? 0 : 14)
-
-        sectionHeader(
-            title: "Up next",
-            icon: "sparkles",
-            actionTitle: "Edit Up Next",
-            action: { viewModel.openUpNextEditor() }
-        )
-        .opacity(showSections ? 1 : 0)
-        .offset(y: showSections ? 0 : 12)
-
-        upNextCard
-            .opacity(showSections ? 1 : 0)
-            .offset(y: showSections ? 0 : 12)
-
-        sectionHeader(
-            title: "Reserve",
-            icon: "sparkles",
-            actionTitle: "Edit Reserve",
-            action: { viewModel.openReserveEditor() }
-        )
-        .opacity(showSections ? 1 : 0)
-        .offset(y: showSections ? 0 : 12)
-
-        QueueHomeSummaryCard(
-            messages: reserveItems,
-            emptyTitle: "Reserve is empty",
-            emptyDetail: "Add messages here to keep them behind Up Next.",
-            onOpen: { viewModel.openReserveEditor() }
-        )
-        .opacity(showSections ? 1 : 0)
-        .offset(y: showSections ? 0 : 12)
-
-        sectionHeader(
-            title: "Revealed recently",
-            icon: "sparkles",
-            actionTitle: nil,
-            action: nil
-        )
-        .id("recently-revealed")
-        .opacity(showSections ? 1 : 0)
-        .offset(y: showSections ? 0 : 12)
-
-        recentActivityCard
-            .opacity(showSections ? 1 : 0)
-            .offset(y: showSections ? 0 : 12)
-    }
-
-    private var background: some View {
-        ZStack {
-            Color(red: 0.988, green: 0.980, blue: 0.972).ignoresSafeArea()
-
-            LinearGradient(
-                colors: [
-                    Color(red: 1.00, green: 0.96, blue: 0.94).opacity(0.95),
-                    Color(red: 0.99, green: 0.95, blue: 0.92).opacity(0.88),
-                    Color(red: 0.97, green: 0.89, blue: 0.91).opacity(0.80)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+            featuredCard
+            QueueHomeSummaryCard(
+                title: "Upcoming messages", messages: viewModel.queuedMessages + viewModel.reserveMessages,
+                detail: "Manage the order of messages after this reveal.",
+                onOpen: viewModel.openUpNextEditor
             )
-            .ignoresSafeArea()
-
-            Circle()
-                .fill(Color(red: 0.99, green: 0.86, blue: 0.88).opacity(0.24))
-                .frame(width: 300, height: 300)
-                .blur(radius: 42)
-                .offset(x: 140, y: -220)
-                .scaleEffect(driftPulse ? 1.03 : 0.97)
-
-            Circle()
-                .fill(Color(red: 0.99, green: 0.88, blue: 0.76).opacity(0.22))
-                .frame(width: 260, height: 260)
-                .blur(radius: 44)
-                .offset(x: -140, y: 360)
-                .scaleEffect(driftPulse ? 0.97 : 1.02)
         }
-    }
-
-    private var header: some View {
-        HStack(alignment: .center) {
-            HStack(spacing: 8) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(Color(red: 0.93, green: 0.47, blue: 0.55))
-
-                Text("Lumi")
-                    .font(.system(.title, design: .serif, weight: .semibold))
-                    .foregroundStyle(Color(red: 0.14, green: 0.15, blue: 0.28))
-            }
-
-            Spacer(minLength: 12)
-
-            Button {
-                // Placeholder until notifications/profile get real destinations.
-            } label: {
-                Image(systemName: "bell")
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundStyle(Color(red: 0.16, green: 0.17, blue: 0.29))
-                    .frame(width: 36, height: 36)
-                    .background(Color.white.opacity(0.9))
-                    .clipShape(Circle())
-                    .shadow(color: Color.black.opacity(0.04), radius: 10, y: 5)
-                    .overlay(alignment: .topTrailing) {
-                        Circle()
-                            .fill(Color(red: 0.90, green: 0.33, blue: 0.47))
-                            .frame(width: 10, height: 10)
-                            .offset(x: -2, y: 2)
-                    }
-            }
-            .buttonStyle(.plain)
-
-            avatar
-        }
-    }
-
-    private var avatar: some View {
-        ZStack {
-            Circle()
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color(red: 0.98, green: 0.86, blue: 0.78),
-                            Color(red: 0.94, green: 0.68, blue: 0.52)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .frame(width: 52, height: 52)
-                .overlay(
-                    Circle()
-                        .stroke(Color.white, lineWidth: 3)
-                )
-                .shadow(color: Color.black.opacity(0.07), radius: 12, y: 6)
-
-            Text(viewModel.avatarInitials)
-                .lumiScaledFont(size: 17, relativeTo: .body, weight: .semibold, design: .rounded, maximumSize: 22)
-                .foregroundStyle(Color(red: 0.16, green: 0.17, blue: 0.29))
-        }
-    }
-
-    private var greetingBlock: some View {
-        TimelineView(.periodic(from: .now, by: 60)) { context in
-            VStack(alignment: .leading, spacing: 8) {
-                Text("\(viewModel.greeting(for: context.date)),")
-                    .font(.system(.largeTitle, design: .serif, weight: .medium))
-                    .foregroundStyle(Color(red: 0.16, green: 0.17, blue: 0.29))
-
-                HStack(spacing: 8) {
-                    Text(viewModel.greetingName)
-                        .font(.system(.largeTitle, design: .serif, weight: .medium))
-                        .foregroundStyle(Color(red: 0.16, green: 0.17, blue: 0.29))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.72)
-
-                    Text("♥")
-                        .font(.system(size: 31, weight: .medium, design: .serif))
-                        .foregroundStyle(Color(red: 0.16, green: 0.17, blue: 0.29))
-                }
-
-                Text(viewModel.heroHeadline)
-                    .font(.system(.body, design: .rounded))
-                    .foregroundStyle(Color(red: 0.46, green: 0.49, blue: 0.58))
-            }
-        }
-        .padding(.top, 4)
     }
 
     private var featuredCard: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(alignment: .center, spacing: 14) {
-                heroPendant
+        VStack(alignment: .leading, spacing: 16) {
+            Label(viewModel.necklaceName, systemImage: "heart.circle")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(LumiTheme.Colors.rose)
 
-                VStack(alignment: .leading, spacing: 12) {
-                    Text(viewModel.necklaceName)
-                        .font(.system(.title2, design: .serif, weight: .medium))
-                        .foregroundStyle(Color(red: 0.16, green: 0.17, blue: 0.29))
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.8)
+            Text(viewModel.featuredMessage == nil ? "Their first Lumi starts here" : "Ready for the next tap")
+                .font(LumiTheme.Typography.headline(24))
 
-                    Text(heroStatusText)
-                        .font(.system(.subheadline, design: .rounded, weight: .medium))
-                        .foregroundStyle(Color(red: 0.83, green: 0.28, blue: 0.39))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 7)
-                        .background(Color(red: 0.99, green: 0.90, blue: 0.91))
-                        .clipShape(Capsule())
-
-                    Text("“\(heroQuote)”")
-                        .font(.system(.title3, design: .serif))
-                        .foregroundStyle(Color(red: 0.17, green: 0.18, blue: 0.31))
-                        .lineSpacing(3)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    LumiAttachmentBadge(attachment: viewModel.featuredMessage?.attachment)
-
-                    Divider()
-                        .overlay(Color(red: 0.90, green: 0.84, blue: 0.82))
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        ForEach(Array(summaryLines.enumerated()), id: \.offset) { _, item in
-                            HStack(spacing: 8) {
-                                Image(systemName: item.systemImage)
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundStyle(Color(red: 0.42, green: 0.43, blue: 0.50))
-                                    .frame(width: 18)
-
-                                Text(item.text)
-                                    .font(.system(.subheadline, design: .rounded))
-                                    .foregroundStyle(Color(red: 0.42, green: 0.43, blue: 0.50))
-                            }
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+            if let message = viewModel.featuredMessage {
+                Text("“\(message.text)”")
+                    .font(.system(.title3, design: .serif))
+                    .lineLimit(5)
+                    .fixedSize(horizontal: false, vertical: true)
+                LumiAttachmentBadge(attachment: message.attachment)
+                Text("They’ll see this message when they tap their necklace. Preview to read it in full.")
+                    .font(.subheadline)
+                    .foregroundStyle(LumiTheme.Colors.ink.opacity(0.75))
+            } else {
+                Text("Write a message for someone you love. It will be waiting when they tap their necklace.")
+                    .font(.body)
+                    .foregroundStyle(LumiTheme.Colors.ink.opacity(0.75))
             }
 
-            HStack(spacing: 12) {
-                Button {
-                    showPreviewSheet = true
-                } label: {
-                    Label("Preview", systemImage: "eye")
-                }
-                .buttonStyle(SecondaryButtonStyle())
-
-                Button {
-                    viewModel.openLumiComposer()
-                } label: {
-                    Label("Add a Lumi", systemImage: "sparkles")
+            if viewModel.canAddLumi {
+                Button(action: viewModel.openLumiComposer) {
+                    Label("Add a Lumi", systemImage: "plus")
                 }
                 .buttonStyle(PrimaryButtonStyle())
-            }
-        }
-        .padding(18)
-        .background(
-            RoundedRectangle(cornerRadius: 30, style: .continuous)
-                .fill(Color.white.opacity(0.9))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 30, style: .continuous)
-                .stroke(Color(red: 0.96, green: 0.85, blue: 0.84), lineWidth: 1)
-        )
-        .shadow(color: Color(red: 0.93, green: 0.79, blue: 0.77).opacity(0.35), radius: 18, y: 8)
-    }
-
-    private var heroPendant: some View {
-        ZStack {
-            Circle()
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color(red: 0.98, green: 0.92, blue: 0.84),
-                            Color(red: 0.92, green: 0.75, blue: 0.50),
-                            Color(red: 0.83, green: 0.59, blue: 0.28)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .frame(width: 132, height: 132)
-                .overlay(
-                    Circle()
-                        .stroke(Color.white.opacity(0.86), lineWidth: 5)
-                )
-                .shadow(color: Color(red: 0.93, green: 0.78, blue: 0.63).opacity(0.34), radius: 16, y: 8)
-
-            Circle()
-                .fill(Color.white.opacity(0.18))
-                .frame(width: 102, height: 102)
-
-            VStack(spacing: 4) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(Color.white.opacity(0.9))
-                Text("L")
-                    .lumiScaledFont(size: 28, relativeTo: .title, weight: .semibold, design: .serif, maximumSize: 36)
-                    .foregroundStyle(Color.white)
-            }
-
-            Circle()
-                .fill(Color.white.opacity(0.88))
-                .frame(width: 28, height: 28)
-                .overlay(
-                    Image(systemName: "heart.fill")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Color(red: 0.90, green: 0.33, blue: 0.47))
-                )
-                .shadow(color: Color.black.opacity(0.08), radius: 10, y: 4)
-                .offset(x: 37, y: 38)
-        }
-    }
-
-    private var upNextCard: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if upNextItems.isEmpty {
-                VStack(spacing: 14) {
-                    ZStack {
-                        Circle()
-                            .fill(Color(red: 0.96, green: 0.84, blue: 0.85).opacity(0.55))
-                            .frame(width: 54, height: 54)
-
-                        Image(systemName: "sparkles")
-                            .font(.system(size: 22, weight: .medium))
-                            .foregroundStyle(Color(red: 0.90, green: 0.33, blue: 0.47))
-                    }
-
-                    VStack(spacing: 6) {
-                        Text("No Lumis waiting")
-                            .font(.system(.title3, design: .serif, weight: .medium))
-                            .foregroundStyle(Color(red: 0.16, green: 0.17, blue: 0.29))
-
-                        Text("Add a Lumi when you’re ready to leave her another moment.")
-                            .font(.system(.subheadline, design: .rounded))
-                            .foregroundStyle(Color(red: 0.46, green: 0.49, blue: 0.58))
-                            .multilineTextAlignment(.center)
-                            .lineSpacing(2)
-                    }
-
-                    if viewModel.canAddLumi {
-                        Button {
-                            viewModel.openLumiComposer()
-                        } label: {
-                            Label("Add a Lumi", systemImage: "sparkles")
-                                .font(.system(.headline, design: .rounded, weight: .semibold))
-                                .foregroundStyle(Color.white)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                                .background(Color(red: 0.90, green: 0.33, blue: 0.47))
-                                .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 22)
-                .padding(.vertical, 24)
             } else {
-                ForEach(Array(upNextItems.enumerated()), id: \.element.id) { index, message in
-                    HStack(alignment: .center, spacing: 14) {
-                        dragDots
+                Text("This necklace is inactive. You can preview its messages, but can’t add new ones yet.")
+                    .font(.subheadline)
+                    .foregroundStyle(LumiTheme.Colors.ink.opacity(0.75))
+            }
 
-                        ZStack {
-                            Circle()
-                                .fill(numberTint(for: index).opacity(0.18))
-                                .frame(width: 38, height: 38)
-
-                            Text("\(index + 1)")
-                                .font(.system(.subheadline, design: .rounded, weight: .medium))
-                                .foregroundStyle(numberTint(for: index))
-                        }
-
-                        VStack(alignment: .leading, spacing: 7) {
-                            Text(message.text)
-                                .font(.system(.body, design: .rounded))
-                                .foregroundStyle(Color(red: 0.18, green: 0.19, blue: 0.31))
-                                .fixedSize(horizontal: false, vertical: true)
-                            LumiAttachmentBadge(attachment: message.attachment)
-                        }
-
-                        Spacer(minLength: 0)
-
-                        dragDots
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 16)
-
-                    if index < upNextItems.count - 1 {
-                        Divider()
-                            .overlay(Color(red: 0.91, green: 0.88, blue: 0.87))
-                    }
+            if viewModel.featuredMessage != nil {
+                Button { showPreviewSheet = true } label: {
+                    Label("Preview their experience", systemImage: "eye")
+                        .frame(maxWidth: .infinity, minHeight: 44)
                 }
+                .buttonStyle(.plain)
+                .foregroundStyle(LumiTheme.Colors.rose)
             }
         }
-        .padding(8)
-        .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(Color.white.opacity(0.84))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(Color(red: 0.95, green: 0.88, blue: 0.87), lineWidth: 1)
-        )
-        .shadow(color: Color(red: 0.95, green: 0.86, blue: 0.84).opacity(0.20), radius: 14, y: 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
     }
 
     private var recentActivityCard: some View {
@@ -560,9 +160,9 @@ struct HomeView: View {
                             .font(.system(.body, design: .rounded, weight: .medium))
                             .foregroundStyle(Color(red: 0.18, green: 0.19, blue: 0.31))
 
-                        Text("Her revealed Lumis will appear here after she taps the necklace.")
+                        Text("Revealed messages, reactions, and replies appear here after they tap their necklace.")
                             .font(.system(.subheadline, design: .rounded))
-                            .foregroundStyle(Color(red: 0.46, green: 0.49, blue: 0.58))
+                            .foregroundStyle(LumiTheme.Colors.ink.opacity(0.75))
                             .fixedSize(horizontal: false, vertical: true)
                     }
 
@@ -657,7 +257,7 @@ struct HomeView: View {
 
                 Text(viewModel.revealedSubtitle(for: item.revealedAt))
                     .font(.system(.subheadline, design: .rounded))
-                    .foregroundStyle(Color(red: 0.46, green: 0.49, blue: 0.58))
+                    .foregroundStyle(LumiTheme.Colors.ink.opacity(0.75))
             }
 
             Spacer(minLength: 0)
@@ -665,7 +265,7 @@ struct HomeView: View {
             if showsDisclosure {
                 Image(systemName: "chevron.right")
                     .font(.caption.bold())
-                    .foregroundStyle(Color(red: 0.46, green: 0.49, blue: 0.58))
+                    .foregroundStyle(LumiTheme.Colors.ink.opacity(0.75))
                     .accessibilityHidden(true)
             }
         }
@@ -686,47 +286,6 @@ struct HomeView: View {
         }
     }
 
-    private func sectionHeader(
-        title: String,
-        icon: String,
-        actionTitle: String?,
-        action: (() -> Void)?
-    ) -> some View {
-        HStack {
-            HStack(spacing: 8) {
-                Image(systemName: icon)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Color(red: 0.92, green: 0.58, blue: 0.42))
-
-                Text(title)
-                    .font(.system(.headline, design: .serif, weight: .medium))
-                    .foregroundStyle(Color(red: 0.16, green: 0.17, blue: 0.29))
-            }
-
-            Spacer(minLength: 12)
-
-            if let actionTitle, let action {
-                Button(action: action) {
-                    Label(actionTitle, systemImage: "pencil")
-                        .font(.system(.subheadline, design: .rounded, weight: .medium))
-                        .foregroundStyle(Color(red: 0.90, green: 0.33, blue: 0.47))
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.top, 2)
-    }
-
-    private func numberTint(for index: Int) -> Color {
-        switch index {
-        case 0:
-            return Color(red: 0.92, green: 0.39, blue: 0.50)
-        case 1:
-            return Color(red: 0.65, green: 0.52, blue: 0.84)
-        default:
-            return Color(red: 0.94, green: 0.67, blue: 0.29)
-        }
-    }
 }
 
 private struct HomeQueueStatusCard: View {
@@ -776,50 +335,38 @@ private struct HomeQueueStatusCard: View {
 }
 
 private struct QueueHomeSummaryCard: View {
+    let title: String
     let messages: [Message]
-    let emptyTitle: String
-    let emptyDetail: String
+    let detail: String
     let onOpen: () -> Void
 
     var body: some View {
         Button(action: onOpen) {
             HStack(spacing: 14) {
-                Image(systemName: messages.isEmpty ? "tray" : "list.number")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(LumiTheme.Colors.rose)
-                    .frame(width: 48, height: 48)
-                    .background(LumiTheme.Colors.roseSoft.opacity(0.72), in: RoundedRectangle(cornerRadius: 13))
-
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(messages.isEmpty ? emptyTitle : "\(messages.count) \(messages.count == 1 ? "Lumi" : "Lumis") in Reserve")
-                        .font(LumiTheme.Typography.headline(17))
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("\(title) · \(messages.count)")
+                        .font(.headline)
                         .foregroundStyle(LumiTheme.Colors.ink)
-
-                    Text(messages.first.map { "First in Reserve: \($0.text)" } ?? emptyDetail)
-                        .font(LumiTheme.Typography.body(14))
-                        .foregroundStyle(LumiTheme.Colors.ink.opacity(0.66))
+                    Text(messages.first?.text ?? "No messages yet")
+                        .font(.subheadline)
+                        .foregroundStyle(LumiTheme.Colors.ink)
                         .lineLimit(2)
-                        .multilineTextAlignment(.leading)
+                    Text(detail)
+                        .font(.footnote)
+                        .foregroundStyle(LumiTheme.Colors.ink.opacity(0.75))
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-
                 Spacer(minLength: 4)
-
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(LumiTheme.Colors.ink.opacity(0.42))
+                    .foregroundStyle(LumiTheme.Colors.ink.opacity(0.65))
+                    .accessibilityHidden(true)
             }
-            .padding(16)
+            .multilineTextAlignment(.leading)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.white.opacity(0.88))
-            .overlay(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .stroke(LumiTheme.Colors.cardStroke, lineWidth: 1)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .glassCard()
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(messages.isEmpty ? "\(emptyTitle). \(emptyDetail)" : "\(messages.count) messages in Reserve")
-        .accessibilityHint("Opens the Reserve editor")
+        .accessibilityHint("Manage messages in \(title)")
     }
 }
 
@@ -947,27 +494,5 @@ private struct HomeAppClipPreview: View {
                 argument: "App Clip preview"
             )
         }
-    }
-}
-
-private struct DragDots: View {
-    var body: some View {
-        VStack(spacing: 2) {
-            ForEach(0..<3, id: \.self) { _ in
-                HStack(spacing: 2) {
-                    Circle().frame(width: 3, height: 3)
-                    Circle().frame(width: 3, height: 3)
-                }
-                .foregroundStyle(Color(red: 0.80, green: 0.78, blue: 0.78))
-            }
-        }
-        .opacity(0.9)
-        .frame(width: 16)
-    }
-}
-
-private extension HomeView {
-    var dragDots: some View {
-        DragDots()
     }
 }

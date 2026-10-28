@@ -70,6 +70,10 @@ struct RecipientMessageToken: Identifiable, Equatable {
 
 @MainActor
 final class RecipientPresentationCoordinator: ObservableObject {
+    // The view cancels presentation tasks on disappearance; teardown requires
+    // no actor hop and must remain safe when a reveal is dismissed.
+    nonisolated deinit {}
+
     @Published private(set) var phase: RecipientPresentationPhase = .loading
     @Published private(set) var lumi: ResolvedLumi?
     @Published private(set) var terminalState: RecipientRevealState?
