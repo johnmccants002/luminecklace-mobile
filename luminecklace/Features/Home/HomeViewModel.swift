@@ -15,6 +15,14 @@ final class HomeViewModel: ObservableObject {
             .store(in: &cancellables)
     }
 
+    // No actor-isolated cleanup is needed when this screen model is released.
+    nonisolated deinit {}
+
+    var composerNotice: String? { appState.composerNotice }
+    func dismissComposerNotice() { appState.composerNotice = nil }
+    var necklaces: [NecklaceTag] { appState.ownedNecklaces }
+    func chooseNecklace(_ id: String) { appState.chooseNecklace(id) }
+
     var equippedLabel: String {
         appState.equippedNecklace?.name ?? "No necklace equipped"
     }

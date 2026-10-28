@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct SettingsView: View {
+    @EnvironmentObject private var appState: AppState
     @ObservedObject var viewModel: SettingsViewModel
 
     var body: some View {
@@ -32,6 +33,23 @@ struct SettingsView: View {
                             .foregroundStyle(LumiTheme.Colors.rose)
                     }
                     .glassCard()
+
+                    NavigationLink {
+                        CollectionView(viewModel: CollectionViewModel(appState: appState))
+                    } label: {
+                        Label("Your necklaces", systemImage: "sparkles.square.filled.on.square")
+                    }
+                    .buttonStyle(SecondaryButtonStyle())
+
+                    NavigationLink { AccountHelpView() } label: {
+                        Label("Account & necklace help", systemImage: "questionmark.circle")
+                    }
+                    .buttonStyle(SecondaryButtonStyle())
+
+                    NavigationLink { ShareToLumiHelpView() } label: {
+                        Label("Share a link to Lumi", systemImage: "square.and.arrow.up")
+                    }
+                    .buttonStyle(SecondaryButtonStyle())
 
                     notificationSection
 

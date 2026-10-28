@@ -10,12 +10,15 @@ final class AppState: ObservableObject {
     @Published private(set) var queueSnapshot: QueueSnapshot?
     @Published private(set) var queueSyncState: QueueSyncState = .idle
     @Published private(set) var queueActionError: String?
-    @Published var composerDraftText = ""
-    @Published var composerBackground: LumiBackgroundKey = .heart
-    @Published var composerFont: LumiFontKey = .serif
-    @Published var composerTextSize: LumiTextSizeKey = .medium
-    @Published var composerTextAlignment: LumiTextAlignmentKey = .center
-    @Published var composerTextPosition: LumiTextPositionKey = .center
+    @Published var composerNotice: String?
+    @Published var composerDestination: QueueSection = .upNext { didSet { persistComposerDraft() } }
+    @Published var composerDraftText = "" { didSet { persistComposerDraft() } }
+    @Published var composerBackground: LumiBackgroundKey = .heart { didSet { persistComposerDraft() } }
+    @Published var composerFont: LumiFontKey = .serif { didSet { persistComposerDraft() } }
+    @Published var composerTextSize: LumiTextSizeKey = .medium { didSet { persistComposerDraft() } }
+    @Published var composerTextAlignment: LumiTextAlignmentKey = .center { didSet { persistComposerDraft() } }
+    @Published var composerTextPosition: LumiTextPositionKey = .center { didSet { persistComposerDraft() } }
+    @Published private(set) var composerRestoredDraft = false
     @Published var showRetapHint = false
     @Published var settings = UserSettings()
     @Published var recipientRevealState: RecipientRevealState = .awaitingInvocation
@@ -24,7 +27,7 @@ final class AppState: ObservableObject {
     @Published private(set) var notificationHomeFocusId: UUID?
 
     let authService: AuthenticationServicing
-    let senderService = SenderService()
+    let senderService: SenderService
     let tapResolutionService: RecipientTapServicing
     let pushNotificationManager: PushNotificationManager
     let soundManager = SoundManager()
@@ -45,6 +48,8 @@ final class AppState: ObservableObject {
     private var composerEditingMessageID: String?
     private var composerEditingSection: QueueSection?
     private var composerReturnRoute: RootRoute = .senderHome
+    private let composerDraftStore: LumiComposerDraftStore
+    private var composerDraftContext: LumiComposerDraftContext?
     private let notificationNavigationService: NotificationNavigationServicing
     private let recipientRevealTransitionDelay: Duration
 
@@ -53,7 +58,9 @@ final class AppState: ObservableObject {
         authService: AuthenticationServicing? = nil,
         pushNotificationManager: PushNotificationManager? = nil,
         notificationNavigationService: NotificationNavigationServicing? = nil,
-        recipientRevealTransitionDelay: Duration = .milliseconds(420)
+        recipientRevealTransitionDelay: Duration = .milliseconds(420),
+        senderService: SenderService? = nil,
+        composerDraftStore: LumiComposerDraftStore? = nil
     ) {
         let resolvedPushManager = pushNotificationManager ?? PushNotificationManager()
         self.tapResolutionService = tapResolutionService
@@ -61,6 +68,8 @@ final class AppState: ObservableObject {
         self.pushNotificationManager = resolvedPushManager
         self.notificationNavigationService = notificationNavigationService ?? SenderService()
         self.recipientRevealTransitionDelay = recipientRevealTransitionDelay
+        self.senderService = senderService ?? SenderService()
+        self.composerDraftStore = composerDraftStore ?? LumiComposerDraftStore()
 
         resolvedPushManager.foregroundEventHandler = { [weak self] _ in
             Task { @MainActor [weak self] in
@@ -128,7 +137,7 @@ final class AppState: ObservableObject {
     var composerSubtitle: String {
         composerIsEditing
             ? "Update the message and its presentation."
-            : "Choose whether this Lumi should appear soon or wait in Reserve."
+            : "Up Next plays first. Reserve plays automatically afterward."
     }
 
     var composerActionTitle: String {
@@ -348,6 +357,21 @@ final class AppState: ObservableObject {
         default:
             composerReturnRoute = .senderHome
         }
+        composerDestination = composerReturnRoute == .reserveEditor ? .reserve : .upNext
+        if let userID = user?.id, let necklaceID = equippedNecklace?.id {
+            let context = LumiComposerDraftContext(userID: userID, necklaceID: necklaceID)
+            if let draft = composerDraftStore.load(for: context) {
+                composerDraftText = draft.text
+                composerBackground = draft.background
+                composerFont = draft.font
+                composerTextSize = draft.textSize
+                composerTextAlignment = draft.textAlignment
+                composerTextPosition = draft.textPosition
+                composerDestination = draft.destination
+                composerRestoredDraft = true
+            }
+            composerDraftContext = context
+        }
         route = .lumiComposer
     }
 
@@ -357,6 +381,7 @@ final class AppState: ObservableObject {
         resetComposerDraft()
         composerEditingMessageID = message.id
         composerEditingSection = section
+        composerDestination = section
         composerDraftText = message.text
         composerBackground = message.experience.backgroundKey
         composerFont = message.experience.fontKey
@@ -367,7 +392,10 @@ final class AppState: ObservableObject {
         route = .lumiComposer
     }
 
-    func cancelLumiComposer() {
+    func cancelLumiComposer(discardDraft: Bool = true) {
+        if discardDraft, let context = composerDraftContext {
+            composerDraftStore.remove(for: context)
+        }
         let returnRoute = composerReturnRoute
         resetComposerDraft()
         route = returnRoute
@@ -411,7 +439,12 @@ final class AppState: ObservableObject {
         }
 
         let returnRoute = composerReturnRoute
+        let notice = composerIsEditing ? "Your Lumi has been updated." : "Added to \(destination.displayName)."
+        if let context = composerDraftContext {
+            composerDraftStore.remove(for: context)
+        }
         resetComposerDraft()
+        composerNotice = notice
         route = returnRoute
     }
 
@@ -774,6 +807,11 @@ final class AppState: ObservableObject {
         recipientResolutionTask?.cancel()
         recipientResolutionTask = nil
         cancelRecipientRevealTransition()
+        revealConfirmationTask?.cancel()
+        revealConfirmationTask = nil
+        confirmationSessionIDs.removeAll()
+        resetRecipientFeedbackState(for: nil)
+        recipientRevealState = .awaitingInvocation
         currentRecipientToken = nil
         if user == nil {
             route = authService.hasAccessToken && lastBootstrapError != nil
@@ -1140,6 +1178,12 @@ final class AppState: ObservableObject {
     }
 
     private func resetComposerDraft() {
+        // Clear the context before resetting fields so their observers cannot
+        // overwrite an existing draft during a route or account change.
+        composerDraftContext = nil
+        composerRestoredDraft = false
+        composerNotice = nil
+        composerDestination = .upNext
         composerDraftText = ""
         composerBackground = .heart
         composerFont = .serif
@@ -1149,6 +1193,17 @@ final class AppState: ObservableObject {
         composerEditingMessageID = nil
         composerEditingSection = nil
         composerReturnRoute = .senderHome
+    }
+
+    private func persistComposerDraft() {
+        guard !composerIsEditing, let context = composerDraftContext,
+              user?.id == context.userID,
+              equippedNecklace?.id == context.necklaceID else { return }
+        composerDraftStore.save(LumiComposerDraft(
+            text: composerDraftText, background: composerBackground, font: composerFont,
+            textSize: composerTextSize, textAlignment: composerTextAlignment,
+            textPosition: composerTextPosition, destination: composerDestination
+        ), for: context)
     }
 
     private var composerExperience: Experience {

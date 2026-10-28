@@ -4,10 +4,12 @@ struct CollectionView: View {
     @ObservedObject var viewModel: CollectionViewModel
     @Namespace private var cardNamespace
 
-    private let columns = [
-        GridItem(.flexible(), spacing: 12),
-        GridItem(.flexible(), spacing: 12)
-    ]
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    private var columns: [GridItem] {
+        dynamicTypeSize.isAccessibilitySize
+            ? [GridItem(.flexible())]
+            : [GridItem(.adaptive(minimum: 150), spacing: 12)]
+    }
 
     var body: some View {
         ZStack {
@@ -15,7 +17,7 @@ struct CollectionView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("Collection")
+                    Text("Your necklaces")
                         .font(LumiTheme.Typography.display(34))
                         .foregroundStyle(LumiTheme.Colors.ink)
 
@@ -55,26 +57,28 @@ struct NecklaceDetailView: View {
     let namespace: Namespace.ID
 
     var body: some View {
-        ZStack {
+        let necklace = viewModel.necklaces.first(where: { $0.id == self.necklace.id }) ?? self.necklace
+        return ZStack {
             LumiTheme.Colors.pageBackground.ignoresSafeArea()
 
-            VStack(alignment: .leading, spacing: 16) {
-                NecklaceCardView(necklace: necklace)
-                    .matchedGeometryEffect(id: necklace.id, in: namespace)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    NecklaceCardView(necklace: necklace)
+                        .matchedGeometryEffect(id: necklace.id, in: namespace)
 
-                detailRow("SKU", value: necklace.sku)
-                detailRow("Theme", value: necklace.themeKey.capitalized)
-                detailRow("Status", value: necklace.lifecycleStatus.replacingOccurrences(of: "_", with: " ").capitalized)
-                detailRow("Waiting Lumis", value: "\(necklace.availableLumiCount)")
-                detailRow("Animation Preview", value: "Fade + soft shimmer")
+                    detailRow("Theme", value: necklace.themeKey.capitalized)
+                    detailRow("Status", value: necklace.lifecycleStatus.replacingOccurrences(of: "_", with: " ").capitalized)
+                    detailRow("Waiting Lumis", value: "\(necklace.availableLumiCount)")
 
-                PrimaryButton(title: necklace.isEquipped ? "Currently Equipped" : "Set as Equipped") {
-                    viewModel.equip(necklace)
+                    PrimaryButton(title: necklace.isEquipped ? "Selected necklace" : "Select this necklace") {
+                        viewModel.equip(necklace)
+                    }
+                    .disabled(necklace.isEquipped)
+
+                    Spacer()
                 }
-
-                Spacer()
+                .padding(20)
             }
-            .padding(20)
         }
         .navigationTitle(necklace.name)
         .navigationBarTitleDisplayMode(.inline)

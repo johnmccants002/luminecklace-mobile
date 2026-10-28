@@ -29,7 +29,7 @@ struct ShareLumiRootView: View {
                     status(
                         icon: "heart.slash",
                         title: "No active necklace",
-                        message: "Set up or activate a necklace in Lumi before sharing.",
+                        message: "Open Lumi and choose Help finding my necklace, or Account & necklace help in Settings. Check your order email and linked necklaces, then return here and try again.",
                         retry: true
                     )
                 case .unsupportedShare:
@@ -87,7 +87,7 @@ struct ShareLumiRootView: View {
                         if viewModel.state == .submitting {
                             ProgressView().tint(.white)
                         }
-                        Text(viewModel.state == .submitting ? "Adding…" : "Add to Lumi")
+                        Text(viewModel.state == .submitting ? "Adding…" : "Add to \(viewModel.destination.title)")
                     }
                     .font(.headline)
                     .foregroundStyle(.white)
@@ -174,9 +174,9 @@ struct ShareLumiRootView: View {
             Divider()
 
             HStack {
-                Text("Place in").font(.subheadline.weight(.semibold))
+                Text("Add to").font(.subheadline.weight(.semibold))
                 Spacer()
-                Picker("Place in", selection: $viewModel.destination) {
+                Picker("Add to", selection: $viewModel.destination) {
                     ForEach(ShareQueueDestination.allCases) { destination in
                         Text(destination.title).tag(destination)
                     }
@@ -184,6 +184,12 @@ struct ShareLumiRootView: View {
                 .labelsHidden()
                 .pickerStyle(.menu)
             }
+            Text(viewModel.destination == .upNext
+                 ? "Plays after the Lumi waiting now and messages already in Up Next."
+                 : "Plays automatically after all Up Next messages.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(15)
         .background(.background, in: RoundedRectangle(cornerRadius: 18))

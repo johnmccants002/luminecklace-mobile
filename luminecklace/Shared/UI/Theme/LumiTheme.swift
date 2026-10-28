@@ -3,7 +3,7 @@ import SwiftUI
 enum LumiTheme {
     enum Colors {
         static let ink = Color(red: 0.15, green: 0.16, blue: 0.29)
-        static let rose = Color(red: 0.91, green: 0.34, blue: 0.49)
+        static let rose = Color(red: 0.70, green: 0.20, blue: 0.35)
         static let roseSoft = Color(red: 0.97, green: 0.89, blue: 0.91)
         static let blush = Color(red: 0.99, green: 0.95, blue: 0.95)
         static let cream = Color(red: 0.99, green: 0.97, blue: 0.94)

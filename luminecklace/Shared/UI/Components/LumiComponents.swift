@@ -6,6 +6,7 @@ struct LumiTextField: View {
     var secure: Bool = false
     var keyboardType: UIKeyboardType = .default
     var autocapitalization: TextInputAutocapitalization = .never
+    var contentType: UITextContentType? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -21,6 +22,8 @@ struct LumiTextField: View {
                         .textInputAutocapitalization(autocapitalization)
                 }
             }
+            .textContentType(contentType)
+            .autocorrectionDisabled()
             .keyboardType(keyboardType)
             .foregroundStyle(LumiTheme.Colors.ink)
             .padding(14)
@@ -83,7 +86,7 @@ struct NecklaceCardView: View {
                     .foregroundStyle(LumiTheme.Colors.rose)
                 Spacer()
                 if necklace.isEquipped {
-                    Text("Equipped")
+                    Text("Selected")
                         .font(LumiTheme.Typography.body(11).weight(.semibold))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
@@ -209,5 +212,57 @@ struct LumiAttachmentBadge: View {
             .background(LumiTheme.Colors.roseSoft.opacity(0.62), in: Capsule())
             .accessibilityLabel(accessibilityLabel)
         }
+    }
+}
+
+struct QueueDestinationPicker: View {
+    @Binding var selection: QueueSection
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Add to").font(.headline)
+                Spacer()
+                Picker("Add to", selection: $selection) {
+                    ForEach(QueueSection.allCases, id: \.self) { destination in
+                        Text(destination.displayName).tag(destination)
+                    }
+                }
+                .pickerStyle(.menu)
+                .tint(LumiTheme.Colors.rose)
+                .frame(minHeight: 44)
+            }
+            Text(selection == .upNext
+                 ? "Plays after the Lumi waiting now and messages already in Up Next."
+                 : "Plays automatically after all Up Next messages.")
+                .font(.subheadline)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(16)
+        .foregroundStyle(LumiTheme.Colors.ink)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(LumiTheme.Colors.cardStroke))
+    }
+}
+
+struct LumiSuccessBanner: View {
+    let message: String
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Label(message, systemImage: "checkmark.circle.fill")
+                .font(.subheadline.weight(.semibold))
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            Button(action: onDismiss) {
+                Image(systemName: "xmark").frame(width: 44, height: 44)
+            }
+            .accessibilityLabel("Dismiss confirmation")
+        }
+        .padding(.leading, 14)
+        .foregroundStyle(LumiTheme.Colors.ink)
+        .background(LumiTheme.Colors.roseSoft, in: RoundedRectangle(cornerRadius: 16))
+        .accessibilityAddTraits(.updatesFrequently)
     }
 }

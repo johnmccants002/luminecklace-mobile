@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct FloatingHeartsBackground: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var animate = false
     private let sparkleSizes: [CGFloat] = (0..<10).map { _ in
         CGFloat(Int.random(in: 10...24))
@@ -18,10 +19,10 @@ struct FloatingHeartsBackground: View {
                         .foregroundStyle(Color(red: 0.93, green: 0.47, blue: 0.55).opacity(0.08))
                         .position(
                             x: CGFloat((index * 41) % width),
-                            y: animate ? CGFloat((index * 83) % height) : CGFloat((index * 37) % height)
+                            y: animate && !reduceMotion ? CGFloat((index * 83) % height) : CGFloat((index * 37) % height)
                         )
                         .animation(
-                            .easeInOut(duration: Double(8 + index)).repeatForever(autoreverses: true),
+                            reduceMotion ? nil : .easeInOut(duration: Double(8 + index)).repeatForever(autoreverses: true),
                             value: animate
                         )
                 }
@@ -29,11 +30,13 @@ struct FloatingHeartsBackground: View {
             .onAppear { animate = true }
         }
         .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 
 struct HeartBurstEffect: View {
     let trigger: Int
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var animate = false
 
     var body: some View {
@@ -52,7 +55,10 @@ struct HeartBurstEffect: View {
                     .animation(.easeOut(duration: 0.55).delay(Double(index) * 0.015), value: animate)
             }
         }
+        .accessibilityHidden(true)
+        .opacity(reduceMotion ? 0 : 1)
         .onChange(of: trigger) { _, _ in
+            guard !reduceMotion else { return }
             animate = false
             withAnimation {
                 animate = true

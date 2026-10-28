@@ -61,25 +61,34 @@ struct NoNecklaceView: View {
         ZStack {
             LumiTheme.Colors.pageBackground.ignoresSafeArea()
 
-            VStack(spacing: 18) {
-                EmptyStateView(
-                    title: "No Lumi linked",
-                    subtitle: "There isn't a necklace connected to this account yet.",
-                    systemImage: "heart.slash"
-                )
+            ScrollView {
+                VStack(spacing: 18) {
+                    EmptyStateView(
+                        title: "No Lumi linked",
+                        subtitle: "Necklaces are linked using your order email. Check that you’re signed in with the same address.",
+                        systemImage: "heart.slash"
+                    )
 
-                VStack(spacing: 12) {
-                    PrimaryButton(title: "Try Again") {
-                        Task { await appState.bootstrapSenderFlowAfterAuth() }
+                    if let email = appState.user?.email {
+                        Text("Signed in as \(email)")
+                            .font(.subheadline)
+                            .foregroundStyle(LumiTheme.Colors.ink)
                     }
+                    NavigationLink("Help finding my necklace") { AccountHelpView() }
+                        .buttonStyle(SecondaryButtonStyle())
+                    VStack(spacing: 12) {
+                        PrimaryButton(title: "Check for my necklace") {
+                            Task { await appState.bootstrapSenderFlowAfterAuth() }
+                        }
 
-                    Button("Sign Out") {
-                        Task { await appState.signOut() }
+                        Button("Use another account") {
+                            Task { await appState.signOut() }
+                        }
+                        .buttonStyle(SecondaryButtonStyle())
                     }
-                    .buttonStyle(SecondaryButtonStyle())
                 }
+                .padding(20)
             }
-            .padding(20)
         }
     }
 }
@@ -120,9 +129,12 @@ struct LumiComposerView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @FocusState private var isTextFocused: Bool
+    @State private var showsReview = false
+    @State private var showsDiscardConfirmation = false
+    @State private var initialDraft: [String] = []
     @State private var isSaving = false
     @State private var errorMessage: String?
-    @State private var selectedTool: ComposerTool? = .background
+    @State private var selectedTool: ComposerTool?
     @State private var departingTool: ComposerTool?
     @State private var isPreparingTextEditing = false
     @State private var isTextEditing = false
@@ -182,10 +194,27 @@ struct LumiComposerView: View {
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
+        .disabled(isSaving)
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            bottomControls
+            bottomControls.disabled(isSaving)
         }
         .preferredColorScheme(.dark)
+        .onAppear { initialDraft = draftSignature }
+        .interactiveDismissDisabled()
+        .confirmationDialog(appState.composerIsEditing ? "Discard your changes?" : "Finish this Lumi later?", isPresented: $showsDiscardConfirmation, titleVisibility: .visible) {
+            if !appState.composerIsEditing {
+                Button("Save draft & close") { appState.cancelLumiComposer(discardDraft: false) }
+            }
+            Button(appState.composerIsEditing ? "Discard changes" : "Discard draft", role: .destructive) { appState.cancelLumiComposer() }
+            Button("Keep editing", role: .cancel) { }
+        } message: {
+            Text(appState.composerIsEditing
+                 ? "Your changes haven’t been saved to this queued Lumi."
+                 : "Your draft stays on this device for this account and necklace. It won’t be added until you choose Add.")
+        }
+        .sheet(isPresented: $showsReview) {
+            reviewSheet
+        }
         .onChange(of: isTextFocused) { _, focused in
             guard !focused, isTextEditing else { return }
             withAnimation(composerTransitionAnimation) {
@@ -213,10 +242,10 @@ struct LumiComposerView: View {
             TextField(
                 "",
                 text: composerDraftBinding,
-                prompt: Text("Tap to write your message")
+                prompt: Text("Write a Lumi")
                     .foregroundStyle(
                         LumiBackgroundResolver.foreground(for: appState.composerBackground)
-                            .opacity(0.34)
+                            .opacity(0.75)
                     ),
                 axis: .vertical
             )
@@ -269,7 +298,12 @@ struct LumiComposerView: View {
             Button {
                 textEntryTask?.cancel()
                 isTextFocused = false
-                appState.cancelLumiComposer()
+                guard !isSaving else { return }
+                if draftSignature != initialDraft || (!appState.composerIsEditing && !appState.composerDraftText.isEmpty) {
+                    showsDiscardConfirmation = true
+                } else {
+                    appState.cancelLumiComposer()
+                }
             } label: {
                 Image(systemName: "xmark")
                     .font(.body.weight(.semibold))
@@ -283,7 +317,7 @@ struct LumiComposerView: View {
 
             Spacer()
 
-            if appState.composerDraftText.count >= 400 {
+            if isTextModeActive || appState.composerDraftText.count >= 400 {
                 Text("\(appState.composerDraftText.count)/500")
                     .font(.caption.monospacedDigit().weight(.semibold))
                     .foregroundStyle(
@@ -315,7 +349,7 @@ struct LumiComposerView: View {
                             ProgressView()
                                 .tint(.white)
                         } else {
-                            Text(appState.composerIsEditing ? "Save" : "Next")
+                            Text(appState.composerIsEditing ? "Save changes" : "Review")
                                 .font(.headline)
                         }
                     }
@@ -324,7 +358,7 @@ struct LumiComposerView: View {
                         LinearGradient(
                             colors: [
                                 LumiTheme.Colors.rose,
-                                Color(red: 1.0, green: 0.46, blue: 0.35)
+                                LumiTheme.Colors.rose
                             ],
                             startPoint: .leading,
                             endPoint: .trailing
@@ -337,7 +371,7 @@ struct LumiComposerView: View {
                 .accessibilityHint(
                     appState.composerIsEditing
                         ? "Saves your changes"
-                        : "Saves this Lumi to Up Next"
+                        : "Review your message and choose when it will appear"
                 )
             }
         }
@@ -377,7 +411,7 @@ struct LumiComposerView: View {
                             }
                         }
 
-                        Text(tool.rawValue)
+                        Text("Style")
                             .font(.caption2.weight(.semibold))
                             .shadow(color: .black.opacity(0.45), radius: 3, y: 1)
                     }
@@ -413,7 +447,7 @@ struct LumiComposerView: View {
             Button {
                 beginTextEditing()
             } label: {
-                Label("Tap text to edit", systemImage: "pencil")
+                Label(appState.composerRestoredDraft ? "Continue your draft" : (appState.composerDraftText.isEmpty ? "Write your message" : "Tap text to edit"), systemImage: "pencil")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 22)
@@ -667,7 +701,52 @@ struct LumiComposerView: View {
 
     private func advanceFromComposer() {
         finishTextEditing()
-        save(to: .upNext)
+        if appState.composerIsEditing {
+            save(to: appState.composerDestination)
+        } else {
+            showsReview = true
+        }
+    }
+
+    private var draftSignature: [String] {
+        [appState.composerDraftText, appState.composerBackground.rawValue,
+         appState.composerFont.rawValue, appState.composerTextSize.rawValue,
+         appState.composerTextAlignment.rawValue, appState.composerTextPosition.rawValue]
+    }
+
+    private var reviewSheet: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    Text(appState.equippedNecklace?.name ?? "Your necklace")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(LumiTheme.Colors.rose)
+                    Text(appState.composerDraftText)
+                        .font(.system(.title3, design: .serif))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .glassCard()
+                    QueueDestinationPicker(selection: $appState.composerDestination)
+                    if let errorMessage {
+                        Text(errorMessage).foregroundStyle(.red)
+                    }
+                    PrimaryButton(title: "Add to \(appState.composerDestination.displayName)", isLoading: isSaving) {
+                        save(to: appState.composerDestination)
+                    }
+                }
+                .padding(20)
+            }
+            .background(LumiTheme.Colors.pageBackground)
+            .navigationTitle("Review your Lumi")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Keep editing") { showsReview = false }
+                        .disabled(isSaving)
+                }
+            }
+        }
+        .preferredColorScheme(.light)
+        .interactiveDismissDisabled(isSaving)
     }
 
     private var isTextModeActive: Bool {
@@ -740,8 +819,9 @@ struct LumiComposerView: View {
     }
 
     private func save(to destination: QueueSection) {
+        guard !isSaving, canAdvance else { return }
+        isSaving = true
         Task {
-            isSaving = true
             errorMessage = nil
             defer { isSaving = false }
             do {
@@ -760,7 +840,7 @@ struct LumiComposerView: View {
     private var composerDraftBinding: Binding<String> {
         Binding(
             get: { appState.composerDraftText },
-            set: { appState.composerDraftText = String($0.prefix(500)) }
+            set: { appState.composerDraftText = $0 }
         )
     }
 }
@@ -789,13 +869,13 @@ private struct QueueSectionEditorView: View {
     }
 
     private var title: String {
-        section == .upNext ? "Edit Up Next" : "Edit Reserve"
+        "Manage messages"
     }
 
     private var explanation: String {
         section == .upNext
-            ? "These messages appear after the current Lumi, in this order."
-            : "Reserve continues after Up Next. It stays here until Up Next runs out or you move a message forward."
+            ? "Plays in order after the Lumi already waiting. Moving a message to the front of Up Next won’t replace that Lumi."
+            : "Plays automatically after Up Next runs out. These messages are ready to be revealed."
     }
 
     private var emptyTitle: String {
@@ -805,7 +885,7 @@ private struct QueueSectionEditorView: View {
     private var emptyDetail: String {
         section == .upNext
             ? "When the current Lumi is revealed, Reserve will continue in its own order."
-            : "Add messages here to keep them behind Up Next."
+            : "Add messages to play automatically after Up Next."
     }
 
     var body: some View {
@@ -815,6 +895,19 @@ private struct QueueSectionEditorView: View {
             VStack(alignment: .leading, spacing: 16) {
                 header
 
+                Picker("Message section", selection: Binding(
+                    get: { section },
+                    set: { destination in
+                        if destination == .upNext { appState.openUpNextEditor() }
+                        else { appState.openReserveEditor() }
+                    }
+                )) {
+                    Text("Up Next").tag(QueueSection.upNext)
+                    Text("Reserve").tag(QueueSection.reserve)
+                }
+                .pickerStyle(.segmented)
+                .disabled(appState.isQueueMutating)
+
                 if appState.queueSnapshot != nil,
                    let error = appState.queueActionError {
                     QueueErrorBanner(message: error) {
@@ -822,7 +915,14 @@ private struct QueueSectionEditorView: View {
                     }
                 }
 
+                if let notice = appState.composerNotice {
+                    LumiSuccessBanner(message: notice) { appState.composerNotice = nil }
+                }
                 queueContent
+                if appState.canAddLumiToEquippedNecklace {
+                    PrimaryButton(title: "Add a Lumi") { appState.openLumiComposer() }
+                        .disabled(appState.isQueueMutating)
+                }
             }
             .padding(20)
 
@@ -899,7 +999,7 @@ private struct QueueSectionEditorView: View {
             )
             Spacer(minLength: 0)
         } else {
-            Text("Drag to reorder. Use the menu for queue actions.")
+            Text("Drag to reorder. Open a message’s menu to edit, move, or remove it.")
                 .font(LumiTheme.Typography.body(14))
                 .foregroundStyle(LumiTheme.Colors.ink.opacity(0.66))
 
@@ -955,7 +1055,6 @@ private struct QueueSectionEditorView: View {
             .buttonStyle(SecondaryButtonStyle())
             .frame(maxWidth: 76)
         }
-        .accessibilityElement(children: .combine)
     }
 }
 
@@ -1030,11 +1129,11 @@ private struct QueueActionRow: View {
             Menu {
                 Button("Edit Lumi", systemImage: "pencil", action: onEdit)
                 if section == .upNext {
-                    Button("Make next", systemImage: "arrow.up.to.line", action: onMakeNext)
+                    Button("Move to front of Up Next", systemImage: "arrow.up.to.line", action: onMakeNext)
                     Button("Move to Reserve", systemImage: "tray.and.arrow.down", action: onMoveToReserve)
                 } else {
                     Button("Move to Up Next", systemImage: "arrow.up.forward", action: onMoveToUpNext)
-                    Button("Add as immediate next", systemImage: "arrow.up.to.line", action: onImmediateNext)
+                    Button("Move to front of Up Next", systemImage: "arrow.up.to.line", action: onImmediateNext)
                 }
                 Divider()
                 Button("Remove", systemImage: "trash", role: .destructive, action: onRemove)
@@ -1106,6 +1205,17 @@ struct RecipientRevealView: View {
             updateResponseDraft: appState.updateRecipientResponseDraft,
             submitResponse: appState.submitRecipientResponse
         )
+        .safeAreaInset(edge: .top, alignment: .trailing) {
+            Button("Done", action: appState.returnFromRecipientReveal)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 20)
+                .frame(minHeight: 44)
+                .background(.regularMaterial, in: Capsule())
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .accessibilityHint("Closes this reveal and returns to Lumi")
+        }
         .onChange(of: appState.recipientRevealState) { _, state in
             if case let .waiting(lumi) = state {
                 appState.beginAutomaticRecipientReveal(for: lumi)

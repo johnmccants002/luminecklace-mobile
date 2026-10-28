@@ -3,200 +3,300 @@ import SwiftUI
 struct ExploreFeedView: View {
     @ObservedObject private var appState: AppState
     @StateObject private var viewModel: ExploreViewModel
-
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var activeExperienceID: ExploreLumi.ID?
     @State private var selectedExperience: ExploreLumi?
-    @State private var savedExperienceIDs: Set<ExploreLumi.ID> = []
+    @State private var showsSaved = false
+    @State private var showsSharingHelp = false
     @State private var addedExperienceIDs: Set<ExploreLumi.ID> = []
-    @State private var toastExperienceID: ExploreLumi.ID?
+    @State private var toast: String?
     @State private var toastDismissTask: Task<Void, Never>?
-    @State private var actionError: String?
 
-    init(appState: AppState) {
+    init(appState: AppState, service: MessageLibraryServing? = nil) {
         self.appState = appState
-        _viewModel = StateObject(wrappedValue: ExploreViewModel(appState: appState))
-        _activeExperienceID = State(initialValue: nil)
+        _viewModel = StateObject(wrappedValue: ExploreViewModel(appState: appState, service: service))
     }
 
-    private var experiences: [ExploreLumi] {
-        viewModel.messages.map(ExploreLumi.init(template:))
+    private var templates: [MessageTemplate] {
+        guard showsSaved else { return viewModel.messages }
+        let query = viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return viewModel.savedMessages.filter {
+            query.isEmpty || ($0.title ?? "").localizedCaseInsensitiveContains(query)
+                || $0.text.localizedCaseInsensitiveContains(query)
+                || $0.category.name.localizedCaseInsensitiveContains(query)
+        }
     }
+
+    private var experiences: [ExploreLumi] { templates.map(ExploreLumi.init(template:)) }
 
     var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-
-            switch viewModel.state {
-            case .idle, .loading:
-                ExploreCatalogStatusView(
-                    title: "Loading Explore…",
-                    message: "Finding Lumis for your necklace.",
-                    systemImage: "sparkles",
-                    showsProgress: true
-                )
-            case .empty:
-                ExploreCatalogStatusView(
-                    title: "Nothing here yet",
-                    message: "New Lumi experiences will appear here when they’re available.",
-                    systemImage: "heart.slash"
-                )
-            case let .failed(message):
-                ExploreCatalogStatusView(
-                    title: "Explore couldn’t load",
-                    message: message,
-                    systemImage: "wifi.exclamationmark",
-                    retryAction: { Task { await viewModel.reload() } }
-                )
-            case .loaded:
-                if experiences.isEmpty {
-                    ExploreCatalogStatusView(
-                        title: "Nothing here yet",
-                        message: "New Lumi experiences will appear here when they’re available.",
-                        systemImage: "heart.slash"
-                    )
-                } else {
-                    feed
-                }
+        ZStack(alignment: .bottom) {
+            if dynamicTypeSize.isAccessibilitySize {
+                LumiTheme.Colors.pageBackground.ignoresSafeArea()
+            } else {
+                Color.black.ignoresSafeArea()
             }
-
-            if toastExperienceID != nil {
-                VStack {
-                    Spacer()
-                    Label("Added to Up Next", systemImage: "checkmark.circle.fill")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(LumiTheme.Colors.ink)
-                        .padding(.horizontal, 18)
-                        .frame(minHeight: 46)
-                        .background(.regularMaterial, in: Capsule())
-                        .overlay(Capsule().stroke(Color.white.opacity(0.42), lineWidth: 1))
-                        .shadow(color: .black.opacity(0.18), radius: 16, y: 7)
-                        .padding(.bottom, 92)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+            catalog
+            if let toast {
+                Text(toast)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(LumiTheme.Colors.ink)
+                    .padding(16)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
+                    .padding(.bottom, 80)
+                    .accessibilityAddTraits(.updatesFrequently)
+                    .allowsHitTesting(false)
+            }
+        }
+        .safeAreaInset(edge: .top, spacing: 0) { discoveryControls }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if !showsSaved, let error = viewModel.paginationError {
+                VStack(spacing: 8) {
+                    Text(error).font(.subheadline)
+                    Button("Try again") {
+                        if let last = viewModel.messages.last {
+                            Task { await viewModel.loadMoreIfNeeded(after: last) }
+                        }
+                    }
+                    .frame(minHeight: 44)
                 }
-                .allowsHitTesting(false)
-                .zIndex(5)
+                .padding(12)
+                .frame(maxWidth: .infinity)
+                .foregroundStyle(LumiTheme.Colors.ink)
+                .background(LumiTheme.Colors.cream)
             }
         }
         .toolbar(.hidden, for: .navigationBar)
-        .sheet(item: $selectedExperience) { experience in
-            LumiDetailsSheet(
-                experience: experience,
-                isAdded: isExperienceAdded(experience.id),
-                onAdd: { addToNecklace(experience) },
-                onCustomize: { primaryText, secondaryText, destination in
-                    addToNecklace(
-                        experience,
-                        destination: destination,
-                        customization: LibraryTextCustomization(
-                            primaryText: primaryText,
-                            secondaryText: secondaryText
-                        )
-                    )
-                }
-            )
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
-            .presentationCornerRadius(28)
-        }
-        .onDisappear {
-            toastDismissTask?.cancel()
-        }
-        .task {
-            await viewModel.loadIfNeeded()
-            if let first = viewModel.messages.first,
-               !viewModel.messages.contains(where: { $0.id == activeExperienceID ?? "" }) {
-                activeExperienceID = first.id
+        .sheet(isPresented: $showsSharingHelp) {
+            NavigationStack {
+                ShareToLumiHelpView()
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { showsSharingHelp = false }
+                        }
+                    }
             }
         }
-        .alert("Couldn’t add this Lumi", isPresented: Binding(
-            get: { actionError != nil },
-            set: { if !$0 { actionError = nil } }
-        )) {
-            Button("OK", role: .cancel) { actionError = nil }
-        } message: {
-            Text(actionError ?? "Please try again.")
+        .fullScreenCover(item: $selectedExperience) { experience in
+            ExploreCustomizationSheet(
+                experience: experience,
+                necklaceName: viewModel.selectedNecklace?.name ?? "Your necklace",
+                canEnqueue: viewModel.canEnqueue && !isExperienceAdded(experience.id)
+            ) { primary, secondary, destination in
+                let unchanged = primary == experience.message && secondary == experience.secondaryText
+                return await addToNecklace(experience, destination: destination,
+                    customization: unchanged ? nil : LibraryTextCustomization(primaryText: primary, secondaryText: secondary))
+            }
+        }
+        .task { await viewModel.loadIfNeeded() }
+        .task(id: viewModel.searchText) {
+            if !showsSaved { await viewModel.searchChanged() }
+        }
+        .onChange(of: showsSaved) { _, saved in
+            activeExperienceID = nil
+            if !saved { Task { await viewModel.reload() } }
+        }
+        .onChange(of: appState.equippedNecklace?.id) { _, _ in
+            addedExperienceIDs = []
+            Task { await viewModel.loadIfNeeded() }
+        }
+        .onDisappear { toastDismissTask?.cancel(); toast = nil }
+    }
+
+    private var exploreHeading: some View {
+        HStack(spacing: 4) {
+            Text("Explore").font(LumiTheme.Typography.headline(24))
+            Button { showsSharingHelp = true } label: {
+                Image(systemName: "square.and.arrow.up")
+                    .frame(width: 44, height: 44)
+            }
+            .accessibilityLabel("How to share a link to Lumi")
         }
     }
 
-    private var feed: some View {
-        GeometryReader { proxy in
-            ScrollView(.vertical) {
-                LazyVStack(spacing: 0) {
-                    ForEach(experiences) { experience in
-                        ExploreExperiencePage(
-                            experience: experience,
-                            topSafeAreaInset: proxy.safeAreaInsets.top,
-                            isActive: activeExperienceID == experience.id,
-                            isSaved: savedExperienceIDs.contains(experience.id),
-                            isAdded: isExperienceAdded(experience.id),
-                            onSave: { toggleSaved(experience) },
-                            onAdd: { addToNecklace(experience) },
-                            onShowDetails: { selectedExperience = experience }
-                        )
-                        .containerRelativeFrame(.vertical)
-                        .id(experience.id)
+    private var discoveryControls: some View {
+        VStack(spacing: 10) {
+            ViewThatFits(in: .horizontal) {
+                HStack {
+                    exploreHeading
+                    Spacer()
+                    inspirationPicker.frame(width: 210)
+                }
+                VStack(alignment: .leading) {
+                    exploreHeading
+                    inspirationPicker
+                }
+            }
+            HStack {
+                Image(systemName: "magnifyingglass").accessibilityHidden(true)
+                TextField("Find words for a moment or feeling", text: $viewModel.searchText)
+                    .font(.subheadline)
+                    .submitLabel(.search)
+                    .accessibilityLabel("Search inspiration")
+                if !viewModel.searchText.isEmpty {
+                    Button { viewModel.searchText = "" } label: {
+                        Image(systemName: "xmark.circle.fill").frame(width: 44, height: 44)
+                    }
+                    .accessibilityLabel("Clear search")
+                }
+            }
+            .padding(.horizontal, 12)
+            .frame(minHeight: 44)
+            .background(.white, in: RoundedRectangle(cornerRadius: 12))
+            if showsSaved {
+                Text("Saved on this device for your account. Nothing is added to the necklace until you choose Add.")
+                    .font(.caption)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if !viewModel.categories.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        categoryButton("All", key: nil)
+                        ForEach(viewModel.categories) { category in
+                            categoryButton(category.name, key: category.key)
+                        }
                     }
                 }
-                .scrollTargetLayout()
             }
-            .scrollIndicators(.hidden)
-            .scrollTargetBehavior(.paging)
-            .scrollPosition(id: $activeExperienceID)
-            .ignoresSafeArea(edges: .top)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .foregroundStyle(LumiTheme.Colors.ink)
+        .background(LumiTheme.Colors.pageBackground)
+    }
+
+    private var inspirationPicker: some View {
+        Picker("Inspiration", selection: $showsSaved) {
+            Text("Discover").tag(false)
+            Text("Saved").tag(true)
+        }
+        .pickerStyle(.segmented)
+    }
+
+    private func categoryButton(_ title: String, key: String?) -> some View {
+        Button { Task { await viewModel.selectCategory(key) } } label: {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 14)
+                .frame(minHeight: 44)
+                .foregroundStyle(viewModel.selectedCategoryKey == key ? .white : LumiTheme.Colors.ink)
+                .background(viewModel.selectedCategoryKey == key ? LumiTheme.Colors.rose : Color.white, in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(viewModel.selectedCategoryKey == key ? .isSelected : [])
+    }
+
+    @ViewBuilder
+    private var catalog: some View {
+        if showsSaved {
+            if experiences.isEmpty {
+                ExploreCatalogStatusView(title: "Your inspiration, kept close", message: "Tap Save on a message to find it here. Try clearing your search if you’ve saved something already.", systemImage: "heart")
+            } else { feed }
+        } else {
+            switch viewModel.state {
+            case .idle, .loading:
+                ExploreCatalogStatusView(title: "Loading inspiration…", message: "Finding the right words.", systemImage: "sparkles", showsProgress: true)
+            case .empty:
+                ExploreCatalogStatusView(title: "No matching Lumis", message: "Try another feeling or occasion, or clear your search and choose All.", systemImage: "magnifyingglass")
+            case let .failed(message):
+                ExploreCatalogStatusView(title: "Explore couldn’t load", message: message, systemImage: "wifi.exclamationmark", retryAction: { Task { await viewModel.reload() } })
+            case .loaded:
+                feed
+            }
         }
     }
 
-    private func toggleSaved(_ experience: ExploreLumi) {
-        if savedExperienceIDs.contains(experience.id) {
-            savedExperienceIDs.remove(experience.id)
+    @ViewBuilder
+    private var feed: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 20) {
+                    ForEach(experiences) { experience in
+                        VStack(alignment: .leading, spacing: 16) {
+                            Text(experience.title).font(.headline)
+                            Text(experience.displayMessage).font(.body)
+                            Button {
+                                if let template = templates.first(where: { $0.id == experience.id }) {
+                                    viewModel.toggleSaved(template)
+                                }
+                            } label: {
+                                Label(viewModel.savedMessages.contains { $0.id == experience.id } ? "Saved" : "Save inspiration", systemImage: "heart")
+                                    .frame(minHeight: 44)
+                            }
+                            Button(isExperienceAdded(experience.id) ? "Added" : "Make it yours") { selectedExperience = experience }
+                                .disabled(isExperienceAdded(experience.id))
+                                .buttonStyle(PrimaryButtonStyle())
+                        }
+                        .foregroundStyle(LumiTheme.Colors.ink)
+                        .glassCard()
+                        .task {
+                            if !showsSaved, let template = templates.first(where: { $0.id == experience.id }) {
+                                await viewModel.loadMoreIfNeeded(after: template)
+                            }
+                        }
+                    }
+                }
+                .padding(16)
+            }
         } else {
-            savedExperienceIDs.insert(experience.id)
+            immersiveFeed
         }
-        appState.hapticsManager.impact(enabled: appState.settings.hapticsEnabled)
+    }
+
+    private var immersiveFeed: some View {
+        ScrollView(.vertical) {
+            LazyVStack(spacing: 0) {
+                ForEach(experiences) { experience in
+                    ExploreExperiencePage(
+                        experience: experience,
+                        topSafeAreaInset: 0,
+                        isActive: (activeExperienceID ?? experiences.first?.id) == experience.id,
+                        isSaved: viewModel.savedMessages.contains { $0.id == experience.id },
+                        isAdded: isExperienceAdded(experience.id),
+                        onSave: {
+                            if let template = templates.first(where: { $0.id == experience.id }) {
+                                viewModel.toggleSaved(template)
+                            }
+                        },
+                        onAdd: { selectedExperience = experience }
+                    )
+                    .containerRelativeFrame(.vertical)
+                    .id(experience.id)
+                    .task {
+                        if !showsSaved, let template = templates.first(where: { $0.id == experience.id }) {
+                            await viewModel.loadMoreIfNeeded(after: template)
+                        }
+                    }
+                }
+            }
+            .scrollTargetLayout()
+        }
+        .scrollIndicators(.hidden)
+        .scrollTargetBehavior(.paging)
+        .scrollPosition(id: $activeExperienceID)
+        .scrollDismissesKeyboard(.interactively)
     }
 
     private func isExperienceAdded(_ id: ExploreLumi.ID) -> Bool {
-        addedExperienceIDs.contains(id)
-            || viewModel.messages.first(where: { $0.id == id })?.isQueued == true
+        addedExperienceIDs.contains(id) || viewModel.messages.first(where: { $0.id == id })?.isQueued == true
     }
 
-    private func addToNecklace(
-        _ experience: ExploreLumi,
-        destination: QueueSection = .upNext,
-        customization: LibraryTextCustomization? = nil
-    ) {
-        guard !addedExperienceIDs.contains(experience.id) else { return }
-        guard let template = viewModel.messages.first(where: { $0.id == experience.id }) else {
-            actionError = "This development preview is not available in the production catalog yet."
-            return
+    private func addToNecklace(_ experience: ExploreLumi, destination: QueueSection, customization: LibraryTextCustomization? = nil) async -> String? {
+        guard let template = (viewModel.messages + viewModel.savedMessages).first(where: { $0.id == experience.id }) else {
+            return "This message is no longer available. Refresh Explore and try again."
         }
-        Task {
-            let added = await viewModel.enqueue(
-                template,
-                destination: destination,
-                customization: customization
-            )
-            guard added else {
-                actionError = viewModel.actionError ?? "Please try again."
-                return
-            }
-            addedExperienceIDs.insert(experience.id)
-            appState.hapticsManager.impact(enabled: appState.settings.hapticsEnabled)
-
-            toastDismissTask?.cancel()
-            withAnimation(.spring(response: 0.42, dampingFraction: 0.84)) {
-                toastExperienceID = experience.id
-            }
-            toastDismissTask = Task {
-                try? await Task.sleep(for: .milliseconds(1800))
-                guard !Task.isCancelled else { return }
-                withAnimation(.easeOut(duration: 0.28)) {
-                    if toastExperienceID == experience.id {
-                        toastExperienceID = nil
-                    }
-                }
-            }
+        guard !isExperienceAdded(experience.id) else { return "This Lumi is already in the necklace sequence." }
+        let added = await viewModel.enqueue(template, destination: destination, customization: customization)
+        guard added else { return viewModel.actionError ?? "This Lumi couldn’t be added. Please try again." }
+        addedExperienceIDs.insert(experience.id)
+        appState.hapticsManager.impact(enabled: appState.settings.hapticsEnabled)
+        toastDismissTask?.cancel()
+        toast = "Added to \(destination.displayName)"
+        toastDismissTask = Task {
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            toast = nil
         }
+        return nil
     }
 }
 
@@ -213,7 +313,7 @@ private struct ExploreCatalogStatusView: View {
                 Spacer(minLength: 120)
                 if showsProgress {
                     ProgressView()
-                        .tint(.white)
+                        .tint(LumiTheme.Colors.rose)
                         .controlSize(.large)
                 } else {
                     Image(systemName: systemImage)
@@ -224,23 +324,24 @@ private struct ExploreCatalogStatusView: View {
                     .font(.title2.weight(.bold))
                 Text(message)
                     .font(.body)
-                    .foregroundStyle(.white.opacity(0.72))
+                    .foregroundStyle(LumiTheme.Colors.ink.opacity(0.75))
                     .multilineTextAlignment(.center)
                 if let retryAction {
                     Button("Retry", action: retryAction)
                         .font(.headline)
-                        .foregroundStyle(.black)
+                        .foregroundStyle(.white)
                         .padding(.horizontal, 28)
                         .frame(minHeight: 50)
-                        .background(.white, in: Capsule())
+                        .background(LumiTheme.Colors.rose, in: Capsule())
                 }
                 Spacer(minLength: 80)
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(LumiTheme.Colors.ink)
             .frame(maxWidth: 420)
             .padding(.horizontal, 28)
             .frame(maxWidth: .infinity)
         }
+        .background(LumiTheme.Colors.pageBackground)
     }
 }
 
@@ -252,14 +353,12 @@ private struct ExploreExperiencePage: View {
     let isAdded: Bool
     let onSave: () -> Void
     let onAdd: () -> Void
-    let onShowDetails: () -> Void
 
     var body: some View {
         ZStack {
             LumiExperienceView(experience: experience, isActive: isActive)
 
             VStack(spacing: 0) {
-                header
                 Spacer(minLength: 20)
                 information
             }
@@ -269,62 +368,29 @@ private struct ExploreExperiencePage: View {
         }
     }
 
-    private var header: some View {
-        HStack(spacing: 10) {
-            Text("Explore")
-                .font(.title2.weight(.semibold))
-            Text("For You")
-                .font(.caption.weight(.semibold))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(.ultraThinMaterial, in: Capsule())
-            Spacer()
-        }
-        .foregroundStyle(experience.foregroundColor)
-        .shadow(color: .black.opacity(0.16), radius: 8, y: 3)
-    }
-
     private var information: some View {
         VStack(spacing: 15) {
             HStack(alignment: .bottom, spacing: 14) {
-                Button(action: onShowDetails) {
-                    VStack(alignment: .leading, spacing: 7) {
-                        Text(experience.title)
-                            .font(.title3.weight(.bold))
-                        Text("\(experience.category) · \(experience.mood) · \(experience.durationSeconds) sec")
-                            .font(.subheadline.weight(.medium))
-                            .opacity(0.78)
-                        Label("Tap for details", systemImage: "chevron.up")
-                            .font(.caption.weight(.semibold))
-                            .opacity(0.70)
-                    }
-                    .multilineTextAlignment(.leading)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
+                VStack(alignment: .leading, spacing: 7) {
+                    Text(experience.title).font(.title3.weight(.bold))
+                    Text("\(experience.category) · \(experience.mood) · \(experience.durationSeconds) sec")
+                        .font(.subheadline.weight(.medium))
+                        .opacity(0.78)
                 }
-                .buttonStyle(.plain)
-
-                VStack(spacing: 14) {
-                    ExploreActionButton(
-                        title: isSaved ? "Saved" : "Save",
-                        systemImage: isSaved ? "heart.fill" : "heart",
-                        foregroundColor: experience.foregroundColor,
-                        action: onSave
-                    )
-                    ExploreActionButton(
-                        title: "Details",
-                        systemImage: "ellipsis",
-                        foregroundColor: experience.foregroundColor,
-                        action: onShowDetails
-                    )
-                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                ExploreActionButton(
+                    title: isSaved ? "Saved" : "Save",
+                    systemImage: isSaved ? "heart.fill" : "heart",
+                    foregroundColor: experience.foregroundColor,
+                    action: onSave
+                )
             }
             .foregroundStyle(experience.foregroundColor)
             .shadow(color: .black.opacity(0.20), radius: 9, y: 4)
 
             Button(action: onAdd) {
                 Label(
-                    isAdded ? "Added" : "Add to Necklace",
+                    isAdded ? "Added" : "Make it yours",
                     systemImage: isAdded ? "checkmark" : "plus"
                 )
                 .font(.headline)
@@ -336,7 +402,7 @@ private struct ExploreExperiencePage: View {
             }
             .buttonStyle(.plain)
             .disabled(isAdded)
-            .accessibilityHint(isAdded ? "Already added for this session" : "Simulates adding this experience to Up Next")
+            .accessibilityHint(isAdded ? "Already in the necklace sequence" : "Review, personalize, and choose when this Lumi appears")
         }
     }
 }
@@ -363,98 +429,11 @@ private struct ExploreActionButton: View {
     }
 }
 
-private struct LumiDetailsSheet: View {
+struct ExploreCustomizationSheet: View {
     let experience: ExploreLumi
-    let isAdded: Bool
-    let onAdd: () -> Void
-    let onCustomize: (String, String?, QueueSection) -> Void
-
-    @Environment(\.dismiss) private var dismiss
-    @State private var showsCustomize = false
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(experience.title)
-                            .font(LumiTheme.Typography.display(31))
-                            .foregroundStyle(LumiTheme.Colors.ink)
-                        Text(experience.displayMessage)
-                            .font(.title3.weight(.medium))
-                            .foregroundStyle(LumiTheme.Colors.ink.opacity(0.82))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-
-                    VStack(spacing: 0) {
-                        detailRow("Mood", value: experience.mood)
-                        Divider()
-                        detailRow("Category", value: experience.category)
-                        Divider()
-                        detailRow("Animation", value: experience.animationName)
-                        Divider()
-                        detailRow("Background", value: experience.backgroundName)
-                        Divider()
-                        detailRow("Duration", value: "\(experience.durationSeconds) seconds")
-                    }
-                    .padding(.horizontal, 17)
-                    .background(LumiTheme.Colors.blush.opacity(0.72), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-
-                    VStack(spacing: 11) {
-                        Button {
-                            onAdd()
-                            dismiss()
-                        } label: {
-                            Label(isAdded ? "Added to Necklace" : "Add to Necklace", systemImage: isAdded ? "checkmark" : "plus")
-                                .frame(maxWidth: .infinity, minHeight: 52)
-                        }
-                        .buttonStyle(PrimaryButtonStyle())
-                        .disabled(isAdded)
-
-                        Button {
-                            showsCustomize = true
-                        } label: {
-                            Text("Customize")
-                                .frame(maxWidth: .infinity, minHeight: 48)
-                        }
-                        .buttonStyle(SecondaryButtonStyle())
-                    }
-                }
-                .padding(20)
-            }
-            .background(LumiTheme.Colors.pageBackground.ignoresSafeArea())
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { dismiss() }
-                }
-            }
-            .fullScreenCover(isPresented: $showsCustomize) {
-                ExploreCustomizationSheet(
-                    experience: experience,
-                    onAdd: onCustomize
-                )
-            }
-        }
-    }
-
-    private func detailRow(_ label: String, value: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 18) {
-            Text(label)
-                .font(.subheadline)
-                .foregroundStyle(LumiTheme.Colors.ink.opacity(0.58))
-            Spacer()
-            Text(value)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(LumiTheme.Colors.ink)
-                .multilineTextAlignment(.trailing)
-        }
-        .padding(.vertical, 13)
-    }
-}
-
-private struct ExploreCustomizationSheet: View {
-    let experience: ExploreLumi
-    let onAdd: (String, String?, QueueSection) -> Void
+    let necklaceName: String
+    let canEnqueue: Bool
+    let onAdd: (String, String?, QueueSection) async -> String?
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -464,6 +443,10 @@ private struct ExploreCustomizationSheet: View {
     @State private var destination: QueueSection = .upNext
     @State private var activeSlot: TextSlot = .primary
     @State private var isTextEditing = false
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+    @State private var showsDiscardConfirmation = false
+    @State private var showsReview = false
 
     private enum TextSlot: String {
         case primary = "Message"
@@ -472,10 +455,14 @@ private struct ExploreCustomizationSheet: View {
 
     init(
         experience: ExploreLumi,
-        onAdd: @escaping (String, String?, QueueSection) -> Void
+        necklaceName: String,
+        canEnqueue: Bool,
+        onAdd: @escaping (String, String?, QueueSection) async -> String?
     ) {
         self.experience = experience
         self.onAdd = onAdd
+        self.necklaceName = necklaceName
+        self.canEnqueue = canEnqueue
         _primaryText = State(initialValue: experience.message)
         _secondaryText = State(initialValue: experience.secondaryText ?? "")
     }
@@ -508,18 +495,16 @@ private struct ExploreCustomizationSheet: View {
                 Spacer()
             }
 
-            if !isTextEditing {
-                HStack {
-                    Spacer()
-                    lockedPresetRail
-                }
-                .padding(.trailing, 10)
-                .padding(.top, 132)
-                .padding(.bottom, 220)
-            }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) { bottomControls }
+        .disabled(isSaving)
+        .safeAreaInset(edge: .bottom, spacing: 0) { bottomControls.disabled(isSaving) }
         .preferredColorScheme(.dark)
+        .interactiveDismissDisabled()
+        .confirmationDialog("Discard your changes?", isPresented: $showsDiscardConfirmation, titleVisibility: .visible) {
+            Button("Discard changes", role: .destructive) { dismiss() }
+            Button("Keep editing", role: .cancel) { }
+        }
+        .sheet(isPresented: $showsReview) { reviewSheet }
         .onChange(of: isTextFocused) { _, focused in
             guard !focused, isTextEditing else { return }
             finishEditing()
@@ -536,13 +521,18 @@ private struct ExploreCustomizationSheet: View {
 
     private var topBar: some View {
         HStack {
-            Button { dismiss() } label: {
+            Button {
+                if primaryText != experience.message || secondaryText != (experience.secondaryText ?? "") {
+                    showsDiscardConfirmation = true
+                } else { dismiss() }
+            } label: {
                 Image(systemName: "xmark")
                     .font(.body.weight(.semibold))
                     .frame(width: 44, height: 44)
                     .background(.black.opacity(0.34), in: Circle())
                     .overlay(Circle().stroke(.white.opacity(0.12), lineWidth: 1))
             }
+            .disabled(isSaving)
             .accessibilityLabel("Close composer")
             .opacity(isTextEditing ? 0 : 1)
             .allowsHitTesting(!isTextEditing)
@@ -561,21 +551,23 @@ private struct ExploreCustomizationSheet: View {
                     .background(.black.opacity(0.38), in: Capsule())
                     .overlay(Capsule().stroke(.white.opacity(0.16), lineWidth: 1))
             } else {
-                Button(action: addCustomizedLumi) {
-                    Text("Add")
+                Button { showsReview = true } label: {
+                    Text("Review")
                         .font(.headline)
+                        .padding(.horizontal, 18)
                         .frame(minWidth: 72, minHeight: 44)
                         .background(
                             LinearGradient(
-                                colors: [LumiTheme.Colors.rose, Color(red: 1, green: 0.46, blue: 0.35)],
+                                colors: [LumiTheme.Colors.rose, LumiTheme.Colors.rose],
                                 startPoint: .leading,
                                 endPoint: .trailing
                             ),
                             in: Capsule()
                         )
                 }
-                .disabled(!canAdd)
-                .opacity(canAdd ? 1 : 0.48)
+                .disabled(!canAdd || isSaving)
+                .opacity(canAdd && !isSaving ? 1 : 0.48)
+                .accessibilityLabel("Review your Lumi")
             }
         }
         .foregroundStyle(.white)
@@ -610,19 +602,6 @@ private struct ExploreCustomizationSheet: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 
-    private var lockedPresetRail: some View {
-        VStack(spacing: 6) {
-            ZStack {
-                Circle().fill(.black.opacity(0.46)).frame(width: 46, height: 46)
-                Image(systemName: "lock.fill").font(.system(size: 17, weight: .semibold))
-            }
-            Text("Preset").font(.caption2.weight(.semibold))
-        }
-        .foregroundStyle(.white)
-        .frame(width: 64)
-        .accessibilityLabel("Preset visuals locked")
-    }
-
     private var bottomControls: some View {
         VStack(spacing: 0) {
             Capsule()
@@ -639,29 +618,23 @@ private struct ExploreCustomizationSheet: View {
                         .foregroundStyle(.white.opacity(0.62))
                 }
                 Spacer()
-                Label("Preset locked", systemImage: "lock.fill")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.72))
+
             }
             .padding(.horizontal, 20)
             .padding(.top, 8)
             .padding(.bottom, 12)
 
+            if !canEnqueue {
+                Text("Choose an active necklace in Home to add a new Lumi.")
+                    .font(.subheadline).padding(.horizontal, 20)
+            }
             HStack(spacing: 10) {
                 slotButton(.primary)
                 if experience.secondaryText != nil { slotButton(.secondary) }
             }
             .padding(.horizontal, 18)
 
-            if !isTextEditing {
-                Picker("Destination", selection: $destination) {
-                    Text("Up Next").tag(QueueSection.upNext)
-                    Text("Reserve").tag(QueueSection.reserve)
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal, 18)
-                .padding(.top, 12)
-            }
+
         }
         .padding(.bottom, 12)
         .foregroundStyle(.white)
@@ -672,6 +645,39 @@ private struct ExploreCustomizationSheet: View {
             UnevenRoundedRectangle(topLeadingRadius: 24, topTrailingRadius: 24)
                 .stroke(.white.opacity(0.1), lineWidth: 1)
         }
+    }
+
+    private var reviewSheet: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    Text(necklaceName).font(.subheadline.weight(.semibold))
+                        .foregroundStyle(LumiTheme.Colors.rose)
+                    Text(primaryText).font(.system(.title3, design: .serif)).glassCard()
+                    if let secondary = secondaryText.nilIfBlank {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Second reveal").font(.headline)
+                            Text(secondary).font(.system(.title3, design: .serif))
+                        }.glassCard()
+                    }
+                    QueueDestinationPicker(selection: $destination)
+                    if let errorMessage { Text(errorMessage).foregroundStyle(.red) }
+                    PrimaryButton(title: "Add to \(destination.displayName)", isLoading: isSaving, action: addCustomizedLumi)
+                        .disabled(!canAdd || isSaving)
+                }.padding(20)
+            }
+            .foregroundStyle(LumiTheme.Colors.ink)
+            .background(LumiTheme.Colors.pageBackground)
+            .navigationTitle("Review your Lumi")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Keep editing") { showsReview = false }.disabled(isSaving)
+                }
+            }
+        }
+        .preferredColorScheme(.light)
+        .interactiveDismissDisabled(isSaving)
     }
 
     private func slotButton(_ slot: TextSlot) -> some View {
@@ -724,9 +730,9 @@ private struct ExploreCustomizationSheet: View {
             get: { activeText },
             set: { value in
                 if activeSlot == .primary {
-                    primaryText = String(value.prefix(500))
+                    primaryText = value
                 } else {
-                    secondaryText = String(value.prefix(250))
+                    secondaryText = value
                 }
             }
         )
@@ -734,7 +740,7 @@ private struct ExploreCustomizationSheet: View {
 
     private var canAdd: Bool {
         let primary = primaryText.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !primary.isEmpty && primary.count <= 500 && secondaryText.count <= 250
+        return canEnqueue && !primary.isEmpty && primary.count <= 500 && secondaryText.count <= 250
     }
 
     private func beginEditing(_ slot: TextSlot) {
@@ -749,9 +755,13 @@ private struct ExploreCustomizationSheet: View {
     }
 
     private func addCustomizedLumi() {
-        guard canAdd else { return }
-        onAdd(primaryText.trimmingCharacters(in: .whitespacesAndNewlines), secondaryText.nilIfBlank, destination)
-        dismiss()
+        guard canAdd, !isSaving else { return }
+        isSaving = true
+        Task {
+            errorMessage = await onAdd(primaryText.trimmingCharacters(in: .whitespacesAndNewlines), secondaryText.nilIfBlank, destination)
+            isSaving = false
+            if errorMessage == nil { dismiss() }
+        }
     }
 }
 
